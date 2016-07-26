@@ -57,7 +57,7 @@ class Dispatcher(Thread):
                             (title, item_list) = self.parser.parse(content)
                             print('Links parsed:')
                             for link, text in item_list:
-                                print('%s (%s)' % (link, text[:15]))
+                                print('%s (%s)' % (link, text[:15] if text is not None else ''))
                             (a, r) = self.queue.add_list(item.resource, title, item_list)
                             print('[%d] %d items added and %d rejected from %s' % (self.id, a, r, item.resource.url))
                         elif mimetype == 'application/pdf':

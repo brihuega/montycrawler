@@ -70,19 +70,20 @@ if __name__ == '__main__':
     # Section B: Process queue
     # We will start dispatcher's threads with a random interval
     print('%d resources in the pending queue.'% len(queue))
-    # Start all threads
-    threads = []
-    for i in range(0, options.threads):
-        # Each thread gets its own parser instance
-        d = Dispatcher(queue, parser())
-        d.start()
-        threads.append(d)
-        # Random time between 1 and 5 seconds
-        time.sleep(randint(1, 5))
+    if len(queue) > 0:
+        # Start all threads
+        threads = []
+        for i in range(0, options.threads):
+            # Each thread gets its own parser instance
+            d = Dispatcher(queue, parser())
+            d.start()
+            threads.append(d)
+            # Random time between 1 and 5 seconds
+            time.sleep(randint(1, 5))
 
-    # Wait all for termination
-    for t in threads:
-        t.join()
+        # Wait all for termination
+        for t in threads:
+            t.join()
 
     print('Exiting.  Process completed in %d seconds.' % round(time.time() - start_time, 2))
 

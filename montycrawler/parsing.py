@@ -50,6 +50,9 @@ class SimpleParser(HTMLParser):
 
     def handle_endtag(self, tag):
         if tag == 'a' and self.current:
+            # Force tuples of 2 elements
+            if len(self.current) != 2:
+                self.current = (self.current[0], None)
             self.links.append(self.current)
         self.current = None
         if tag == 'title' and self.title == '_empty_':
