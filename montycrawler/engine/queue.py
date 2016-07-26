@@ -84,6 +84,7 @@ class Queue:
                 'URL "%s" not valid. Use HTTP or HTTPS with at least the host component.' % resource.url)
         resource.url = urlunparse(components)
         # Look if resource on queue
+        # TODO Cache links to avoid repeating database queries
         with self.lock:
             existing = self.session().query(Pending).join(Resource).filter(Resource.url == resource.url)
             if existing.count() == 0:

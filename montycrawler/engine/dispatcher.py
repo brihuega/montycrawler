@@ -44,7 +44,7 @@ class Dispatcher(Thread):
             while True:
                 item = next(self.queue)
                 print('[%d] Processing: %s' % (self.id, item.resource.url))
-                code, mimetype, filename, content = download(item.resource.url)
+                code, mimetype, filename, content, encoding = download(item.resource.url)
                 # Manage response
                 if code:
                     item.resource.last_code = code
@@ -54,7 +54,7 @@ class Dispatcher(Thread):
                         # Processing based on mime type
                         if mimetype == 'text/html':
                             # Parse and add found resources
-                            (title, item_list) = self.parser.parse(content)
+                            (title, item_list) = self.parser.parse(content.decode(encoding))
                             print('Links parsed:')
                             for link, text in item_list:
                                 print('%s (%s)' % (link, text[:15] if text is not None else ''))
@@ -62,7 +62,7 @@ class Dispatcher(Thread):
                             print('[%d] %d items added and %d rejected from %s' % (self.id, a, r, item.resource.url))
                         elif mimetype == 'application/pdf':
                             # Store PDF
-                            name = self.queue.store(item, mimetype, filename, content)
+                            name = self.queue.store(item.resource, mimetype, filename, content)
                             self.stored += 1
                             print('[%d] Added document "%s" from %s' % (self.id, name, item.resource.url))
                         else:
@@ -95,15 +95,15 @@ def download(url):
         encoding = response.info().get_content_charset()
         if not encoding:
             encoding = 'utf-8'
-        content = response.read().decode(encoding)
-        return code, mimetype, filename, content
+        content = response.read()
+        return code, mimetype, filename, content, encoding
     except error.HTTPError as ex:
         print('Code %d retrieving %s' % (ex.code, url))
-        return ex.code, None, None
+        return ex.code, None, None, None, None
     except error.URLError as ex:
         print('Error retrieving %s')
         print(ex.reason)
-        return None, None, None
+        return None, None, None, None, None
     finally:
         if response:
             response.close()
