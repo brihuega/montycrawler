@@ -36,8 +36,11 @@ class Queue:
         # for multithreading
         # We use a weird order_by clause to prioritize the order field
         q = self.session().query(Pending).order_by(Pending.order == None, Pending.order, Pending.id).all()
-        # Get a local list of IDs to avoid repeating access to DB
+        # Cache queue IDs to avoid repeating access to DB
         self.queue = [item.id for item in q]
+        # Cache URL resources
+        resources = self.session().query(Resource).all()
+        self.urlcache = [res.url for res in resources]
 
     def __len__(self):
         return len(self.queue)
@@ -66,7 +69,7 @@ class Queue:
         Returns:
             Tuple:
                 Pending item.
-                Item added to queue (boolean).
+                The item already exist in queue (boolean).
 
         Raises:
             UrlNotValidError: URL not HTTP or HTTPS or host component empty.
@@ -84,26 +87,29 @@ class Queue:
                 'URL "%s" not valid. Use HTTP or HTTPS with at least the host component.' % resource.url)
         resource.url = urlunparse(components)
         # Look if resource on queue
-        # TODO Cache links to avoid repeating database queries
         with self.lock:
-            existing = self.session().query(Pending).join(Resource).filter(Resource.url == resource.url)
-            if existing.count() == 0:
-                # Append operation must be protected from concurrency
-                # Look if resource already exists
-                actual = self.session().query(Resource).filter_by(url=resource.url).first()
-                if not actual:
-                    self.session().add(resource)
-                    new = Pending(resource=resource)
-                else:
+            if resource.url in self.urlcache:
+                existing = self.session().query(Pending).join(Resource).filter(Resource.url == resource.url)
+                if existing.count() == 0:
+                    # Append operation must be protected from concurrency
+                    # Look if resource already exists
+                    actual = self.session().query(Resource).filter_by(url=resource.url).first()
                     new = Pending(resource=actual)
-                # Add item to queue
-                self.session().add(new)
+                    # Add item to queue
+                    self.session().add(new)
+                    self.session().commit()
+                    self.queue.append(new.id)
+                    return new, True
+                else:
+                    old = existing.first()
+                    return old, False
+            else:
+                self.session().add(resource)
+                new = Pending(resource=resource)
                 self.session().commit()
                 self.queue.append(new.id)
+                self.urlcache.append(resource.url)
                 return new, True
-            else:
-                old = existing.first()
-                return old, False
 
     def add_list(self, ref, title, links):
         """Adds resources to the queue from a list of links"""
