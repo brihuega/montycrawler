@@ -4,6 +4,7 @@ from urllib import request, error
 import posixpath
 from urllib.parse import urlparse
 import datetime
+import sys
 
 # Copyright 2016 Jose A. Brihuega Parodi <jose.brihuega@uca.es>
 
@@ -25,14 +26,15 @@ import datetime
 class Dispatcher(Thread):
     """Thread based queue processor"""
 
-    next_id = 1
+    next_id = 0
 
-    def __init__(self, queue, parser):
+    def __init__(self, queue, parser, logger):
         Thread.__init__(self)
         self.id = Dispatcher.next_id
         Dispatcher.next_id += 1
         self.queue = queue
         self.parser = parser
+        self.logger = logger
         self.downloaded = 0
         self.stored = 0
         self.start_time = None
@@ -43,7 +45,7 @@ class Dispatcher(Thread):
             # Iterate forever until end of queue on exception
             while True:
                 item = next(self.queue)
-                print('[%d] Processing: %s' % (self.id, item.resource.url))
+                self.logger.log('[%d] Processing: %s' % (self.id, item.resource.url))
                 code, mimetype, filename, content, encoding = download(item.resource.url)
                 # Manage response
                 if code:
@@ -55,29 +57,29 @@ class Dispatcher(Thread):
                         if mimetype == 'text/html':
                             # Parse and add found resources
                             (title, item_list) = self.parser.parse(content.decode(encoding))
-                            print('Links parsed:')
+                            self.logger.info('Links parsed:')
                             for link, text in item_list:
-                                print('%s (%s)' % (link, text[:15] if text is not None else ''))
+                                self.logger.info('%s (%s)' % (link, text[:15] if text is not None else ''))
                             (a, r) = self.queue.add_list(item.resource, title, item_list)
-                            print('[%d] %d items added and %d rejected from %s' % (self.id, a, r, item.resource.url))
+                            self.logger.log('[%d] %d resources added and %d rejected from %s' % (self.id, a, r, item.resource.url))
                         elif mimetype == 'application/pdf':
                             # Store PDF
                             name = self.queue.store(item.resource, mimetype, filename, content)
                             self.stored += 1
-                            print('[%d] Added document "%s" from %s' % (self.id, name, item.resource.url))
+                            self.logger.log('[%d] Added document "%s" from %s' % (self.id, name, item.resource.url))
                         else:
-                            print('[%d] Discarded type "%s" from %s' % (self.id, mimetype, item.resource.url))
+                            self.logger.info('[%d] Discarded type "%s" from %s' % (self.id, mimetype, item.resource.url))
                     else:
-                        print('[%d] Got code %d retrieving %s' % (self.id, code, item.resource.url))
+                        print('[%d] Got code %d retrieving %s' % (self.id, code, item.resource.url), file=sys.stderr)
                 else:
-                    print("[%d] Unreachable: %s" % (self.id, item.resource.url))
+                    print("[%d] Unreachable: %s" % (self.id, item.resource.url), file=sys.stderr)
                 # Remove processed item from queue
                 # TODO preserve failed items and retry
                 self.queue.remove(item)
         except StopIteration:
             pass
-        print('Closed dispatcher #%d with %d items downloaded and %d stored.' % (self.id, self.downloaded, self.stored))
-        print('Total process time: %d seconds.' % round(time.time() - self.start_time, 2))
+        self.logger.log('Closed dispatcher #%d with %d resources downloaded and %d documents stored.' % (self.id, self.downloaded, self.stored))
+        self.logger.log('Total process time: %d seconds.' % round(time.time() - self.start_time, 2))
 
 
 def download(url):
@@ -98,11 +100,11 @@ def download(url):
         content = response.read()
         return code, mimetype, filename, content, encoding
     except error.HTTPError as ex:
-        print('Code %d retrieving %s' % (ex.code, url))
+        print('Code %d retrieving %s' % (ex.code, url), file=sys.stderr)
         return ex.code, None, None, None, None
     except error.URLError as ex:
-        print('Error retrieving %s')
-        print(ex.reason)
+        print('Error retrieving %s', file=sys.stderr)
+        print(ex.reason, file=sys.stderr)
         return None, None, None, None, None
     finally:
         if response:

@@ -22,7 +22,23 @@ from random import randint
 
 # You should have received a copy of the GNU General Public License
 # along with Montycrawler.  If not, see <http://www.gnu.org/licenses/>.
-	
+
+
+class Logger:
+    """Helper class to manage verbosity"""
+    def __init__(self, verbose):
+        self.verbose = verbose
+
+    LOW = 1
+    HIGH = 2
+
+    def log(self, text, level=HIGH):
+        if self.verbose or level == Logger.HIGH:
+            print(text)
+
+    def info(self, text):
+        self.log(text, level=Logger.LOW)
+
 # Main program
 if __name__ == '__main__':
     start_time = time.time()
@@ -39,54 +55,59 @@ if __name__ == '__main__':
                           default='parsing.SimpleParser')
     opt_parser.add_option('-t', '--threads', type='int', dest='threads', default=10,
                           help='number of threads')
+    opt_parser.add_option('-v', '--verbose', dest='verbose',
+                          action='store_true',
+                          help='verbose output')
     (options, args) = opt_parser.parse_args()
+
+    # Start logger
+    logger = Logger(options.verbose)
 
     # Obtain queue
     queue = Queue(options.reset)
     if options.reset:
-        print('Database wiped.')
+        logger.log('Database wiped.')
 
     # Section A: Add URL to pending queue
     if len(args) == 1:
         # Remove queue
         if not options.preserve_queue:
             n = queue.clear()
-            print('Empty queue. %d items deleted.' % n)
+            logger.log('Empty queue. %d items deleted.' % n)
         # Insert URL
         res = Resource(url=args[0])
         (item, exists) = queue.add(res)
         if exists:
-            print('URL "%s" already on queue.' % item.resource.url)
+            logger.log('URL "%s" already on queue.' % item.resource.url)
         else:
-            print('URL "%s" added to the queue.' % item.resource.url)
+            logger.log('URL "%s" added to the queue.' % item.resource.url)
 
     # Section B: Get parser
     # Import given class name
     module_path, _, class_name = options.parser.rpartition('.')
     mod = import_module(module_path)
     parser = getattr(mod, class_name)
-    print('Parser %s loaded.' % parser.__name__)
+    logger.log('Parser %s loaded.' % parser.__name__)
 
     # Section B: Process queue
     # We will start dispatcher's threads with a random interval
-    print('%d resources in the pending queue.'% len(queue))
-    if len(queue) > 0:
-        # Start all threads
-        threads = []
-        for i in range(0, options.threads):
+    logger.log('%d resources in the pending queue.'% len(queue))
+    # Start all threads
+    threads = []
+    for i in range(0, options.threads):
+        if len(queue) > 0:
             # Each thread gets its own parser instance
-            d = Dispatcher(queue, parser())
+            d = Dispatcher(queue, parser(), logger)
             d.start()
             threads.append(d)
-            # Random time between 1 and 5 seconds
-            time.sleep(randint(1, 5))
+            # Random time between 3 and 7 seconds waiting to fill queue
+            time.sleep(randint(3, 7))
 
-        # Wait all for termination
-        for t in threads:
-            t.join()
+    # Wait all for termination
+    for t in threads:
+        t.join()
 
-    print('Exiting.  Process completed in %d seconds.' % round(time.time() - start_time, 2))
-
+    logger.log('Exiting.  Process completed in %d seconds.' % round(time.time() - start_time, 2))
 
 
 
