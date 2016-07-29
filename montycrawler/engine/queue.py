@@ -1,4 +1,4 @@
-from urllib.parse import urlparse, urlunparse
+from urllib.parse import urljoin, urldefrag, urlparse
 from sqlalchemy.engine import create_engine
 from sqlalchemy.orm import sessionmaker, scoped_session
 from db.model import Pending, Base, Resource, Link, Document
@@ -59,12 +59,13 @@ class Queue:
             else:
                 raise StopIteration
 
-    def add(self, resource):
+    def add(self, resource, referrer=None):
         """
         Add resource to queue and database (if not exists)
 
         Args:
             resource: The resource to be added
+            referrer: The referrer resource
 
         Returns:
             Tuple:
@@ -74,18 +75,19 @@ class Queue:
         Raises:
             UrlNotValidError: URL not HTTP or HTTPS or host component empty.
         """
-        # Check if URL is OK
-        components = urlparse(resource.url)
-        # Normalize
-        # TODO add base to relative URLs
-        if components.scheme == 'http' and components.netloc.endswith(':80'):
-            components.netloc = components.netloc[0:-3]
-        if components.scheme == 'https' and components.netloc.endswith(':443'):
-            components.netloc = components.netloc[0:-4]
-        if components.scheme not in ('http', 'https') or not components.netloc:
+        # Normalize and complete URL
+        norm, _ = urldefrag(resource.url)
+        if referrer:
+            norm = urljoin(referrer.url, norm)
+        ind = norm.find(';jsessionid')
+        if ind != -1:
+            norm = norm[0:ind]
+        # Only valid protocols
+        parsed = urlparse(norm)
+        if parsed.scheme not in ('http', 'https') or not parsed.netloc:
             raise UrlNotValidError(
-                'URL "%s" not valid. Use HTTP or HTTPS with at least the host component.' % resource.url)
-        resource.url = urlunparse(components)
+                'URL "%s" not valid. Use HTTP or HTTPS with at least the host component.' % norm)
+        resource.url = norm
         # Look if resource on queue
         with self.lock:
             if resource.url in self.urlcache:
@@ -122,7 +124,7 @@ class Queue:
         for u, t in links:
             try:
                 # Add url to queue
-                (p, new) = self.add(Resource(url=u, title=t))
+                (p, new) = self.add(Resource(url=u, title=t), referrer=ref)
                 # Create link
                 self.session().add(Link(text=t, referrer=ref, target=p.resource))
                 self.session().commit()
