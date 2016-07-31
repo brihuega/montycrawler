@@ -59,9 +59,10 @@ class Dispatcher(Thread):
                             (title, item_list) = self.parser.parse(content.decode(encoding))
                             self.logger.info('Links parsed:')
                             for link, text in item_list:
-                                self.logger.info('%s (%s)' % (link, text[:15] if text is not None else ''))
+                                self.logger.info('%s (%s)' % (link, text[:40] if text is not None else ''))
                             (a, r) = self.queue.add_list(item.resource, title, item_list)
                             self.logger.log('[%d] %d resources added and %d rejected from %s' % (self.id, a, r, item.resource.url))
+                            self.logger.info('[%d] Now %d resources in queue.' % (self.id, len(self.queue)))
                         elif mimetype == 'application/pdf':
                             # Store PDF
                             name = self.queue.store(item.resource, mimetype, filename, content)
@@ -103,7 +104,7 @@ def download(url):
         print('Code %d retrieving %s' % (ex.code, url), file=sys.stderr)
         return ex.code, None, None, None, None
     except error.URLError as ex:
-        print('Error retrieving %s', file=sys.stderr)
+        print('Error retrieving "%s"' % url, file=sys.stderr)
         print(ex.reason, file=sys.stderr)
         return None, None, None, None, None
     finally:

@@ -51,8 +51,11 @@ if __name__ == '__main__':
                           action='store_true',
                           help="don't remove pending queue (if URL is provided)")
     opt_parser.add_option('--parser', dest='parser',
-                      help="use CLASS to parse content", metavar="CLASS",
+                          help="use CLASS to parse content", metavar="CLASS",
                           default='parsing.SimpleParser')
+    opt_parser.add_option('-a', '--all-domains', dest='all_domains',
+                          action='store_true',
+                          help='add resources from any domain (default is from the same base domain)')
     opt_parser.add_option('-t', '--threads', type='int', dest='threads', default=10,
                           help='number of threads')
     opt_parser.add_option('-v', '--verbose', dest='verbose',
@@ -62,9 +65,9 @@ if __name__ == '__main__':
 
     # Start logger
     logger = Logger(options.verbose)
-
+    logger.log('Process started at %s' % time.strftime("%b %d %Y - %H:%M:%S", time.localtime(start_time)))
     # Obtain queue
-    queue = Queue(options.reset)
+    queue = Queue(options.reset, options.all_domains)
     if options.reset:
         logger.log('Database wiped.')
 
@@ -107,7 +110,8 @@ if __name__ == '__main__':
     for t in threads:
         t.join()
 
-    logger.log('Exiting.  Process completed in %d seconds.' % round(time.time() - start_time, 2))
+    logger.log('Exiting.  Process completed at %s in %d seconds.' %
+               (time.strftime('%b %d %Y - %H:%M:%S', time.localtime()), round(time.time() - start_time, 2)))
 
 
 

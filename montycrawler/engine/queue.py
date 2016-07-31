@@ -25,7 +25,8 @@ import mimetypes
 
 class Queue:
     """Manages the pending queue as an iterator"""
-    def __init__(self, reset=False):
+    def __init__(self, reset=False, all_domains=False):
+        self.all_domains = all_domains
         self.lock = RLock()
         self.session = setupdb(reset)
         # Order by the "order" or "id" columns.
@@ -85,8 +86,11 @@ class Queue:
         # Only valid protocols
         parsed = urlparse(norm)
         if parsed.scheme not in ('http', 'https') or not parsed.netloc:
-            raise UrlNotValidError(
+            raise MalformedUrlError(
                 'URL "%s" not valid. Use HTTP or HTTPS with at least the host component.' % norm)
+        # By default limit to the same base domain
+        if not self.all_domains and referrer and parsed.netloc != urlparse(referrer.url).netloc:
+            raise NotInBaseDomainError('URL "%s" not in the base domain.' % norm)
         resource.url = norm
         # Look if resource on queue
         with self.lock:
@@ -115,7 +119,6 @@ class Queue:
 
     def add_list(self, ref, title, links):
         """Adds resources to the queue from a list of links"""
-        # TODO option to get URLs only from specific domain
         added = 0
         rejected = 0
         if title:
@@ -190,9 +193,16 @@ class Queue:
 
 
 class UrlNotValidError(ValueError):
-    """Exception raised when the URL provided is invalid for program's purpose"""
+    """Base exception raised when the URL provided is invalid for program's purpose"""
     pass
 
+class MalformedUrlError(UrlNotValidError):
+    """Exception raised when the URL is malformed or protocol is not supported."""
+    pass
+
+class NotInBaseDomainError(UrlNotValidError):
+    """Exception raised when the URL provided isn't from the same base domain."""
+    pass
 
 def setupdb(reset=False):
     """Helper procedure to connect session, create database and setup tables"""
