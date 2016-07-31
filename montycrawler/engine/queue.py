@@ -25,8 +25,9 @@ import mimetypes
 
 class Queue:
     """Manages the pending queue as an iterator"""
-    def __init__(self, reset=False, all_domains=False):
+    def __init__(self, reset=False, all_domains=False, retries=3):
         self.all_domains = all_domains
+        self.retries = retries
         self.lock = RLock()
         self.session = setupdb(reset)
         # Order by the "order" or "id" columns.
@@ -136,6 +137,16 @@ class Queue:
             except UrlNotValidError:
                 rejected += 1
         return added, rejected
+
+    def remove_or_retry(self, item):
+        with self.lock:
+            if item.retries + 1 >= self.retries:
+                self.remove(item)
+                return True
+            else:
+                item.retries += 1
+                self.session().commit()
+                return False
 
     def remove(self, item):
         """Remove resource from queue and database (if exists)"""

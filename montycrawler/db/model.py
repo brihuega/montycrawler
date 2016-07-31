@@ -20,7 +20,7 @@ from sqlalchemy.ext.declarative import declarative_base
 
 # You should have received a copy of the GNU General Public License
 # along with Montycrawler.  If not, see <http://www.gnu.org/licenses/>.
-	
+
 Base = declarative_base()
 
 
@@ -65,3 +65,4 @@ class Pending(Base):
     resource_id = Column(Integer, ForeignKey('resources.id'), unique=True)
     resource = relationship('Resource', backref='pending', uselist=False)
     timestamp = Column(DateTime, default=datetime.datetime.utcnow)
+    retries = Column(Integer, default=0)

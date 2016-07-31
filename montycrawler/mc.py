@@ -58,6 +58,8 @@ if __name__ == '__main__':
                           help='add resources from any domain (default is from the same base domain)')
     opt_parser.add_option('-t', '--threads', type='int', dest='threads', default=10,
                           help='number of threads')
+    opt_parser.add_option('-R', '--retries', type='int', dest='retries', default=3,
+                          help='number of retries until resource in queue is discarded')
     opt_parser.add_option('-v', '--verbose', dest='verbose',
                           action='store_true',
                           help='verbose output')
@@ -67,7 +69,7 @@ if __name__ == '__main__':
     logger = Logger(options.verbose)
     logger.log('Process started at %s' % time.strftime("%b %d %Y - %H:%M:%S", time.localtime(start_time)))
     # Obtain queue
-    queue = Queue(options.reset, options.all_domains)
+    queue = Queue(options.reset, options.all_domains, options.retries)
     if options.reset:
         logger.log('Database wiped.')
 
