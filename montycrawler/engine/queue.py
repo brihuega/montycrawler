@@ -1,3 +1,4 @@
+from asyncio.windows_events import _BaseWaitHandleFuture
 from urllib.parse import urljoin, urldefrag, urlparse
 from sqlalchemy.engine import create_engine
 from sqlalchemy.orm import sessionmaker, scoped_session
@@ -21,7 +22,7 @@ import mimetypes
 
 # You should have received a copy of the GNU General Public License
 # along with Montycrawler.  If not, see <http://www.gnu.org/licenses/>.
-	
+
 
 class Queue:
     """Manages the pending queue as an iterator"""
@@ -30,16 +31,15 @@ class Queue:
         self.retries = retries
         self.lock = RLock()
         self.session = setupdb(reset)
-        # Order by the "order" or "id" columns.
-        # Using fake order clause because SQLite doesn't support NULLS LAST
-        self.pos = 0
         # Get current queue from database.
-        # The session is scoped, so we have to instantiate it before each use
-        # for multithreading
-        # We use a weird order_by clause to prioritize the order field
-        q = self.session().query(Pending).order_by(Pending.order == None, Pending.order, Pending.id).all()
-        # Cache queue IDs to avoid repeating access to DB
-        self.queue = [item.id for item in q]
+        # The session is scoped, for multithreading,
+        # so we have to instantiate it before each use
+        #
+        # Order by the "priority" or "id" columns.
+        # Using fake order clause because SQLite doesn't support NULLS LAST
+        q = self.session().query(Pending).order_by(Pending.priority == None, Pending.priority.desc(), Pending.id).all()
+        # Cache queue IDs and priorities to avoid repeating access to DB
+        self.queue = [(item.id, item.priority) for item in q]
         # Cache URL resources
         resources = self.session().query(Resource).all()
         self.urlcache = [res.url for res in resources]
@@ -48,26 +48,54 @@ class Queue:
         return len(self.queue)
 
     def __iter__(self):
-        self.pos = 0
         return self
 
     def __next__(self):
-        # Make pointer operation atomic
+        # Make queue operation atomic
         with self.lock:
-            if self.pos < len(self.queue):
-                self.pos += 1
+            if self.queue:
+                # Pop element from top of the cached list
+                # (on database isn't removed until call to discard or discard_or_retry)
+                i, _ = self.queue.pop(0)
                 # Obtain object from DB by ID
-                return self.session().query(Pending).filter_by(id=self.queue[self.pos - 1]).one()
+                return self.session().query(Pending).filter_by(id=i).one()
             else:
                 raise StopIteration
 
-    def add(self, resource, referrer=None):
+    def insert(self, item):
+        """Ordered insert element on the cached queue"""
+        # Items are tuples of (id, priority)
+        i, p = item
+        # Protect queue reshape from concurrency
+        with self.lock:
+            if p is None:
+                # No priority, append to end
+                self.queue.append(item)
+            else:
+                newqueue = []
+                inserted = False
+                for item1 in self.queue:
+                    i1, p1 = item1
+                    # Insert item when lower priority found
+                    if not inserted and \
+                            (p1 is None or p1 < p):
+                        newqueue.append(item)
+                        inserted = True
+                    # Copy items except same id
+                    if i1 != i:
+                        newqueue.append(item1)
+                if not inserted:
+                    newqueue.append(item)
+                self.queue = newqueue
+
+    def add(self, resource, referrer=None, priority=None):
         """
         Add resource to queue and database (if not exists)
 
         Args:
             resource: The resource to be added
             referrer: The referrer resource
+            priority: Integer to set order in the queue
 
         Returns:
             Tuple:
@@ -101,20 +129,26 @@ class Queue:
                     # Append operation must be protected from concurrency
                     # Look if resource already exists
                     actual = self.session().query(Resource).filter_by(url=resource.url).first()
-                    new = Pending(resource=actual)
+                    new = Pending(resource=actual, priority=priority)
                     # Add item to queue
                     self.session().add(new)
                     self.session().commit()
-                    self.queue.append(new.id)
+                    self.insert((new.id, priority))
                     return new, True
                 else:
                     old = existing.first()
+                    # Override priority if bigger
+                    if priority is not None and \
+                        (old.priority is None or priority > old.priority):
+                        old.priority = priority
+                        self.session().commit()
+                        self.insert((old.id, priority))
                     return old, False
             else:
                 self.session().add(resource)
-                new = Pending(resource=resource)
+                new = Pending(resource=resource, priority=priority)
                 self.session().commit()
-                self.queue.append(new.id)
+                self.insert((new.id, priority))
                 self.urlcache.append(resource.url)
                 return new, True
 
@@ -125,10 +159,10 @@ class Queue:
         if title:
             ref.title = title
             self.session().commit()
-        for u, t in links:
+        for u, t, p in links:
             try:
                 # Add url to queue
-                (p, new) = self.add(Resource(url=u, title=t), referrer=ref)
+                (p, new) = self.add(Resource(url=u, title=t), referrer=ref, priority=p)
                 # Create link
                 self.session().add(Link(text=t, referrer=ref, target=p.resource))
                 self.session().commit()
@@ -138,43 +172,33 @@ class Queue:
                 rejected += 1
         return added, rejected
 
-    def remove_or_retry(self, item):
+    def discard_or_retry(self, item):
         with self.lock:
             if item.retries + 1 >= self.retries:
-                self.remove(item)
-                return True
-            else:
-                item.retries += 1
-                self.session().commit()
-                return False
-
-    def remove(self, item):
-        """Remove resource from queue and database (if exists)"""
-        # Avoid concurrency on queue reshaping
-        with self.lock:
-            if len(self.queue) > 0:
-                # Build new queue removing ID of item
-                # and adjust pointer
-                newqueue = []
-                i = 0
-                for p in self.queue:
-                    if p == item.id:
-                        if i < self.pos:
-                            self.pos -= 1
-                    else:
-                        newqueue.append(p)
-                        i += 1
-                self.queue = newqueue
-                # Delete item from table
                 self.session().delete(item)
                 self.session().commit()
+                return True
+            else:
+                # Increase retries and reduce half priority
+                if item.priority is not None:
+                    item.priority //= 2
+                item.retries += 1
+                self.session().commit()
+                # Insert in new place
+                self.insert((item.id, item.priority))
+                return False
+
+    def discard(self, item):
+        """Remove resource from pending items in database (if exists)"""
+        with self.lock:
+            self.session().delete(item)
+            self.session().commit()
 
     def clear(self):
         """Empty the queue and delete all records"""
         with self.lock:
             n = len(self.queue)
             self.queue = []
-            self.pos = 0
             # Empty Pending table
             self.session().query(Pending).delete()
             self.session().commit()

@@ -77,8 +77,11 @@ class Dispatcher(Thread):
                                 # Parse and add found resources
                                 (title, item_list) = self.parser.parse(decoded)
                                 self.logger.info('Links parsed:')
-                                for link, text in item_list:
-                                    self.logger.info('%s (%s)' % (link, text[:40] if text is not None else ''))
+                                for link, text, priority in item_list:
+                                    self.logger.info('%s (p=%s) (%s)' %
+                                                     (link,
+                                                      'N' if priority is None else str(priority),
+                                                      text[:40] if text is not None else ''))
                                 (a, r) = self.queue.add_list(item.resource, title, item_list)
                                 self.logger.log('[%d] %d resources in queue. %d added and %d rejected from %s' %
                                                 (self.id, len(self.queue), a, r, item.resource.url))
@@ -99,12 +102,12 @@ class Dispatcher(Thread):
                     print("[%d] Unreachable: %s" % (self.id, item.resource.url), file=sys.stderr)
                 # Remove processed item from queue or retry
                 if process_ok:
-                    self.logger.info('[%d] Process OK. Removing from queue: %s' % (self.id, item.resource.url))
-                    self.queue.remove(item)
+                    self.logger.info('[%d] Process OK: %s' % (self.id, item.resource.url))
+                    self.queue.discard(item)
                 else:
                     self.logger.info("[%d] Can't retrieve: %s" % (self.id, item.resource.url))
-                    if self.queue.remove_or_retry(item):
-                        self.logger.info('[%d] Reached maximum retries, removed.' % self.id)
+                    if self.queue.discard_or_retry(item):
+                        self.logger.info('[%d] Reached maximum retries, discarded.' % self.id)
         except StopIteration:
             pass
         self.logger.log('Closed dispatcher #%d with %d resources downloaded and %d documents stored.' % (self.id, self.downloaded, self.stored))

@@ -99,6 +99,7 @@ if __name__ == '__main__':
     logger.log('%d resources in the pending queue.'% len(queue))
     # Start all threads
     threads = []
+    # TODO Control thread waiting
     for i in range(0, options.threads):
         if len(queue) > 0:
             # Each thread gets its own parser instance

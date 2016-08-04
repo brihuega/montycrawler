@@ -16,7 +16,9 @@ from html.parser import HTMLParser
 
 # You should have received a copy of the GNU General Public License
 # along with Montycrawler.  If not, see <http://www.gnu.org/licenses/>.
-	
+from random import randint
+
+
 class SimpleParser(HTMLParser):
     """Extracts all links from HTML document"""
 
@@ -53,7 +55,9 @@ class SimpleParser(HTMLParser):
             # Force tuples of 2 elements
             if len(self.current) != 2:
                 self.current = (self.current[0], None)
-            self.links.append(self.current)
+            # Placeholder for priority.
+            # This simple parser doesn't assign it.
+            self.links.append(self.current + (None,))
         self.current = None
         if tag == 'title' and self.title == '_empty_':
             self.title = None

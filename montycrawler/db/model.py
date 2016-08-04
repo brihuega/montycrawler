@@ -61,7 +61,7 @@ class Link(Base):
 class Pending(Base):
     __tablename__ = 'pending'
     id = Column(Integer, primary_key=True)
-    order = Column(Integer, nullable=True)
+    priority = Column(Integer, nullable=True)
     resource_id = Column(Integer, ForeignKey('resources.id'), unique=True)
     resource = relationship('Resource', backref='pending', uselist=False)
     timestamp = Column(DateTime, default=datetime.datetime.utcnow)
