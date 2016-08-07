@@ -42,6 +42,8 @@ class Logger:
 # Main program
 if __name__ == '__main__':
     start_time = time.time()
+    print('Montycrawler. Copyright 2016 Jose A. Brihuega Parodi <jose.brihuega@uca.es>')
+    print('This is free software. See LICENSE.md for details.')
     # Parse options
     opt_parser = OptionParser('usage: python %prog [options] [URL]')
     opt_parser.add_option('-r', '--reset', dest='reset',
@@ -51,15 +53,17 @@ if __name__ == '__main__':
                           action='store_true',
                           help="don't remove pending queue (if URL is provided)")
     opt_parser.add_option('--parser', dest='parser',
-                          help="use CLASS to parse content", metavar="CLASS",
+                          help="use CLASS to parse content (default SimpleParser)", metavar="CLASS",
                           default='parsing.SimpleParser')
     opt_parser.add_option('-a', '--all-domains', dest='all_domains',
                           action='store_true',
                           help='add resources from any domain (default is from the same base domain)')
     opt_parser.add_option('-t', '--threads', type='int', dest='threads', default=10,
-                          help='number of threads')
+                          help='number of threads (default 10)')
     opt_parser.add_option('-R', '--retries', type='int', dest='retries', default=3,
-                          help='number of retries until resource in queue is discarded')
+                          help='number of retries until resource in queue is discarded (default 3)')
+    opt_parser.add_option('-d', '--depth', type='int', dest='depth', default=5,
+                          help='max depth in link search (default 5)')
     opt_parser.add_option('-v', '--verbose', dest='verbose',
                           action='store_true',
                           help='verbose output')
@@ -96,14 +100,13 @@ if __name__ == '__main__':
 
     # Section B: Process queue
     # We will start dispatcher's threads with a random interval
-    logger.log('%d resources in the pending queue.'% len(queue))
+    logger.log('%d resources in the pending queue.' % len(queue))
     # Start all threads
     threads = []
-    # TODO Control thread waiting
     for i in range(0, options.threads):
         if len(queue) > 0:
             # Each thread gets its own parser instance
-            d = Dispatcher(queue, parser(), logger)
+            d = Dispatcher(queue, parser(), logger, max_depth=options.depth)
             d.start()
             threads.append(d)
             # Random time between 3 and 7 seconds waiting to fill queue

@@ -94,7 +94,7 @@ class Queue:
 
         Args:
             resource: The resource to be added
-            referrer: The referrer resource
+            referrer: The referrer pending item in queue
             priority: Integer to set order in the queue
 
         Returns:
@@ -108,7 +108,7 @@ class Queue:
         # Normalize and complete URL
         norm, _ = urldefrag(resource.url)
         if referrer:
-            norm = urljoin(referrer.url, norm)
+            norm = urljoin(referrer.resource.url, norm)
         ind = norm.find(';jsessionid')
         if ind != -1:
             norm = norm[0:ind]
@@ -118,7 +118,7 @@ class Queue:
             raise MalformedUrlError(
                 'URL "%s" not valid. Use HTTP or HTTPS with at least the host component.' % norm)
         # By default limit to the same base domain
-        if not self.all_domains and referrer and parsed.netloc != urlparse(referrer.url).netloc:
+        if not self.all_domains and referrer and parsed.netloc != urlparse(referrer.resource.url).netloc:
             raise NotInBaseDomainError('URL "%s" not in the base domain.' % norm)
         resource.url = norm
         # Look if resource on queue
@@ -129,7 +129,9 @@ class Queue:
                     # Append operation must be protected from concurrency
                     # Look if resource already exists
                     actual = self.session().query(Resource).filter_by(url=resource.url).first()
-                    new = Pending(resource=actual, priority=priority)
+                    # Add pending item with priority and increase depth
+                    new = Pending(resource=actual, priority=priority,
+                                  depth=referrer.depth + 1 if referrer is not None else 0)
                     # Add item to queue
                     self.session().add(new)
                     self.session().commit()
@@ -146,7 +148,8 @@ class Queue:
                     return old, False
             else:
                 self.session().add(resource)
-                new = Pending(resource=resource, priority=priority)
+                new = Pending(resource=resource, priority=priority,
+                              depth=referrer.depth + 1 if referrer is not None else 0)
                 self.session().commit()
                 self.insert((new.id, priority))
                 self.urlcache.append(resource.url)
@@ -157,14 +160,14 @@ class Queue:
         added = 0
         rejected = 0
         if title:
-            ref.title = title
+            ref.resource.title = title
             self.session().commit()
         for u, t, p in links:
             try:
                 # Add url to queue
                 (p, new) = self.add(Resource(url=u, title=t), referrer=ref, priority=p)
                 # Create link
-                self.session().add(Link(text=t, referrer=ref, target=p.resource))
+                self.session().add(Link(text=t, referrer=ref.resource, target=p.resource))
                 self.session().commit()
                 if new:
                     added += 1

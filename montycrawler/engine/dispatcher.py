@@ -22,19 +22,21 @@ import sys
 
 # You should have received a copy of the GNU General Public License
 # along with Montycrawler.  If not, see <http://www.gnu.org/licenses/>.
-	
+
+
 class Dispatcher(Thread):
     """Thread based queue processor"""
 
     next_id = 0
 
-    def __init__(self, queue, parser, logger):
+    def __init__(self, queue, parser, logger, max_depth=None):
         Thread.__init__(self)
         self.id = Dispatcher.next_id
         Dispatcher.next_id += 1
         self.queue = queue
         self.parser = parser
         self.logger = logger
+        self.max_depth = max_depth
         self.downloaded = 0
         self.stored = 0
         self.start_time = None
@@ -56,38 +58,43 @@ class Dispatcher(Thread):
                         self.downloaded += 1
                         # Processing based on mime type
                         if mimetype == 'text/html':
-                            # Decode content
-                            decoded = None
-                            if encoding:
-                                try:
-                                    decoded = content.decode(encoding)
-                                except UnicodeDecodeError:
-                                    self.logger.info('[%d] Unexpected decoding error: %s' % (self.id, item.resource.url))
-                            else:
-                                # Encoding not provided. Guess it.
-                                guess = ['iso-8859-1', 'utf-8', 'windows-1251',
-                                         'windows-1252', 'iso-8859-15', 'iso-8859-9', 'ascii']
-                                for enc in guess:
+                            # Limit depth in link search
+                            if self.max_depth is None or item.depth < self.max_depth:
+                                # Decode content
+                                decoded = None
+                                if encoding:
                                     try:
-                                        decoded = content.decode(enc)
-                                        break
+                                        decoded = content.decode(encoding)
                                     except UnicodeDecodeError:
-                                        pass
-                            if decoded:
-                                # Parse and add found resources
-                                (title, item_list) = self.parser.parse(decoded)
-                                self.logger.info('Links parsed:')
-                                for link, text, priority in item_list:
-                                    self.logger.info('%s (p=%s) (%s)' %
-                                                     (link,
-                                                      'N' if priority is None else str(priority),
-                                                      text[:40] if text is not None else ''))
-                                (a, r) = self.queue.add_list(item.resource, title, item_list)
-                                self.logger.log('[%d] %d resources in queue. %d added and %d rejected from %s' %
-                                                (self.id, len(self.queue), a, r, item.resource.url))
-                                process_ok = True
+                                        self.logger.info('[%d] Unexpected decoding error: %s' % (self.id, item.resource.url))
+                                else:
+                                    # Encoding not provided. Guess it.
+                                    guess = ['iso-8859-1', 'utf-8', 'windows-1251',
+                                             'windows-1252', 'iso-8859-15', 'iso-8859-9', 'ascii']
+                                    for enc in guess:
+                                        try:
+                                            decoded = content.decode(enc)
+                                            break
+                                        except UnicodeDecodeError:
+                                            pass
+                                if decoded:
+                                    # Parse and add found resources
+                                    (title, item_list) = self.parser.parse(decoded)
+                                    self.logger.info('Links parsed:')
+                                    for link, text, priority in item_list:
+                                        self.logger.info('%s (p=%s) (%s)' %
+                                                         (link,
+                                                          'N' if priority is None else str(priority),
+                                                          text[:40] if text is not None else ''))
+                                    (a, r) = self.queue.add_list(item, title, item_list)
+                                    self.logger.log('[%d] %d resources in queue. %d added and %d rejected from %s' %
+                                                    (self.id, len(self.queue), a, r, item.resource.url))
+                                    process_ok = True
+                                else:
+                                    self.logger.info("[%d] Can't decode content: %s" % (self.id, item.resource.url))
                             else:
-                                self.logger.info("[%d] Can't decode content: %s" % (self.id, item.resource.url))
+                                self.logger.log("[%d] Max depth reached. Discarded: %s" % (self.id, item.resource.url))
+                                process_ok = True
                         elif mimetype == 'application/pdf':
                             # Store PDF
                             name = self.queue.store(item.resource, mimetype, filename, content)
@@ -95,7 +102,8 @@ class Dispatcher(Thread):
                             self.logger.log('[%d] Added document "%s" from %s' % (self.id, name, item.resource.url))
                             process_ok = True
                         else:
-                            self.logger.info('[%d] Discarded type "%s" from %s' % (self.id, mimetype, item.resource.url))
+                            self.logger.info('[%d] Discarded type "%s" from %s' %
+                                             (self.id, mimetype, item.resource.url))
                     else:
                         print('[%d] Got code %d retrieving %s' % (self.id, code, item.resource.url), file=sys.stderr)
                 else:

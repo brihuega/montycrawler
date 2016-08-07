@@ -66,3 +66,4 @@ class Pending(Base):
     resource = relationship('Resource', backref='pending', uselist=False)
     timestamp = Column(DateTime, default=datetime.datetime.utcnow)
     retries = Column(Integer, default=0)
+    depth = Column(Integer, default=0)
