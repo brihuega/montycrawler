@@ -1,8 +1,6 @@
-from asyncio.windows_events import _BaseWaitHandleFuture
 from urllib.parse import urljoin, urldefrag, urlparse
-from sqlalchemy.engine import create_engine
-from sqlalchemy.orm import sessionmaker, scoped_session
 from db.model import Pending, Base, Resource, Link, Document
+from db.utils import setupdb
 from threading import RLock
 import mimetypes
 
@@ -23,14 +21,15 @@ import mimetypes
 # You should have received a copy of the GNU General Public License
 # along with Montycrawler.  If not, see <http://www.gnu.org/licenses/>.
 
-
+# TODO: queue stats
 class Queue:
     """Manages the pending queue as an iterator"""
     def __init__(self, reset=False, all_domains=False, retries=3):
         self.all_domains = all_domains
         self.retries = retries
         self.lock = RLock()
-        self.session = setupdb(reset)
+        self.session = setupdb('db', Base, reset)
+
         # Get current queue from database.
         # The session is scoped, for multithreading,
         # so we have to instantiate it before each use
@@ -100,7 +99,7 @@ class Queue:
         Returns:
             Tuple:
                 Pending item.
-                The item already exist in queue (boolean).
+                The item is new in queue (boolean).
 
         Raises:
             UrlNotValidError: URL not HTTP or HTTPS or host component empty.
@@ -150,6 +149,7 @@ class Queue:
                 self.session().add(resource)
                 new = Pending(resource=resource, priority=priority,
                               depth=referrer.depth + 1 if referrer is not None else 0)
+                self.session().add(new)
                 self.session().commit()
                 self.insert((new.id, priority))
                 self.urlcache.append(resource.url)
@@ -241,18 +241,3 @@ class MalformedUrlError(UrlNotValidError):
 class NotInBaseDomainError(UrlNotValidError):
     """Exception raised when the URL provided isn't from the same base domain."""
     pass
-
-def setupdb(reset=False):
-    """Helper procedure to connect session, create database and setup tables"""
-
-    # Setup DB
-    engine = create_engine('sqlite:///db.sqlite')
-    if reset:
-        Base.metadata.drop_all(engine)
-    Base.metadata.create_all(engine)
-
-    # Get DB session
-    # We use scoped sessions for multithreading
-    # see http://docs.sqlalchemy.org/en/latest/orm/contextual.html
-    session_factory = sessionmaker(bind=engine)
-    return scoped_session(session_factory)

@@ -5,6 +5,7 @@ import posixpath
 from urllib.parse import urlparse
 import datetime
 import sys
+from random import randint
 
 # Copyright 2016 Jose A. Brihuega Parodi <jose.brihuega@uca.es>
 
@@ -30,96 +31,122 @@ class Dispatcher(Thread):
     next_id = 0
 
     def __init__(self, queue, parser, logger, max_depth=None):
-        Thread.__init__(self)
-        self.id = Dispatcher.next_id
+        Thread.__init__(self, name=str(Dispatcher.next_id))
         Dispatcher.next_id += 1
         self.queue = queue
         self.parser = parser
         self.logger = logger
         self.max_depth = max_depth
+        self.parsed = 0
         self.downloaded = 0
-        self.stored = 0
+        self.added = 0
         self.start_time = None
 
     def run(self):
         self.start_time = time.time()
+        self.logger.info('THREAD_STARTED')
+        self.write_status('WAITING')
+        # Random time between 3 and 7 seconds waiting to fill queue
+        time.sleep(randint(3, 7))
         try:
-            # Iterate forever until end of queue on exception
-            while True:
-                item = next(self.queue)
-                self.logger.log('[%d] Processing: %s' % (self.id, item.resource.url))
-                code, mimetype, filename, content, encoding = download(item.resource.url)
-                # Manage response
-                process_ok = False
-                if code:
-                    item.resource.last_code = code
-                    item.resource.fetched = datetime.datetime.utcnow()
-                    if code == 200:
-                        self.downloaded += 1
-                        # Processing based on mime type
-                        if mimetype == 'text/html':
-                            # Limit depth in link search
-                            if self.max_depth is None or item.depth < self.max_depth:
-                                # Decode content
-                                decoded = None
-                                if encoding:
-                                    try:
-                                        decoded = content.decode(encoding)
-                                    except UnicodeDecodeError:
-                                        self.logger.info('[%d] Unexpected decoding error: %s' % (self.id, item.resource.url))
-                                else:
-                                    # Encoding not provided. Guess it.
-                                    guess = ['iso-8859-1', 'utf-8', 'windows-1251',
-                                             'windows-1252', 'iso-8859-15', 'iso-8859-9', 'ascii']
-                                    for enc in guess:
+            # Iterate until end of queue reached and 15 additional wait periods
+            waits = 0
+            while waits < 15:
+                try:
+                    item = next(self.queue)
+                    self.write_status('RUNNING')
+                    self.logger.info('PROCESS_URL', item.resource.url)
+                    code, mimetype, filename, content, encoding = download(item.resource.url)
+                    # Manage response
+                    process_ok = False
+                    if code:
+                        item.resource.last_code = code
+                        item.resource.fetched = datetime.datetime.utcnow()
+                        if code == 200:
+                            # Processing based on mime type
+                            if mimetype == 'text/html':
+                                # Limit depth in link search
+                                if self.max_depth is None or item.depth < self.max_depth:
+                                    # Decode content
+                                    decoded = None
+                                    if encoding:
                                         try:
-                                            decoded = content.decode(enc)
-                                            break
+                                            decoded = content.decode(encoding)
                                         except UnicodeDecodeError:
-                                            pass
-                                if decoded:
-                                    # Parse and add found resources
-                                    (title, item_list) = self.parser.parse(decoded)
-                                    self.logger.info('Links parsed:')
-                                    for link, text, priority in item_list:
-                                        self.logger.info('%s (p=%s) (%s)' %
-                                                         (link,
-                                                          'N' if priority is None else str(priority),
-                                                          text[:40] if text is not None else ''))
-                                    (a, r) = self.queue.add_list(item, title, item_list)
-                                    self.logger.log('[%d] %d resources in queue. %d added and %d rejected from %s' %
-                                                    (self.id, len(self.queue), a, r, item.resource.url))
-                                    process_ok = True
+                                            self.logger.error('Decoding error: ' + item.resource.url)
+                                    else:
+                                        # Encoding not provided. Guess it.
+                                        guess = ['iso-8859-1', 'utf-8', 'windows-1251',
+                                                 'windows-1252', 'iso-8859-15', 'iso-8859-9', 'ascii']
+                                        for enc in guess:
+                                            try:
+                                                decoded = content.decode(enc)
+                                                break
+                                            except UnicodeDecodeError:
+                                                pass
+                                    if decoded:
+                                        # Parse and add found resources
+                                        (title, item_list) = self.parser.parse(decoded)
+                                        for link, text, priority in item_list:
+                                            self.logger.debug('Found "%s" (p=%s) (%s)' %
+                                                             (link,
+                                                              'N' if priority is None else str(priority),
+                                                              text[:40] if text is not None else ''))
+                                        (a, r) = self.queue.add_list(item, title, item_list)
+                                        self.added += a
+                                        self.write_status('RUNNING')
+                                        self.logger.debug('%d resources in queue. %d added and %d rejected from %s' %
+                                                            (len(self.queue), a, r, item.resource.url))
+                                        process_ok = True
+                                    else:
+                                        self.logger.error("Can't decode: " + item.resource.url)
                                 else:
-                                    self.logger.info("[%d] Can't decode content: %s" % (self.id, item.resource.url))
-                            else:
-                                self.logger.log("[%d] Max depth reached. Discarded: %s" % (self.id, item.resource.url))
+                                    self.logger.info('MAX_DEPTH_REACHED', item.resource.url)
+                                    process_ok = True
+                            elif mimetype == 'application/pdf':
+                                # Store PDF
+                                name = self.queue.store(item.resource, mimetype, filename, content)
+                                self.downloaded += 1
+                                self.write_status('RUNNING')
+                                self.logger.debug('Added document "%s" from %s' % (name, item.resource.url))
+                                self.logger.info('DOWNLOADED', name)
                                 process_ok = True
-                        elif mimetype == 'application/pdf':
-                            # Store PDF
-                            name = self.queue.store(item.resource, mimetype, filename, content)
-                            self.stored += 1
-                            self.logger.log('[%d] Added document "%s" from %s' % (self.id, name, item.resource.url))
-                            process_ok = True
+                            else:
+                                self.logger.debug('Discarded type "%s" from %s' %
+                                                 (mimetype, item.resource.url))
                         else:
-                            self.logger.info('[%d] Discarded type "%s" from %s' %
-                                             (self.id, mimetype, item.resource.url))
+                            self.logger.error('Got code %d retrieving %s' % (code, item.resource.url))
                     else:
-                        print('[%d] Got code %d retrieving %s' % (self.id, code, item.resource.url), file=sys.stderr)
-                else:
-                    print("[%d] Unreachable: %s" % (self.id, item.resource.url), file=sys.stderr)
-                # Remove processed item from queue or retry
-                if process_ok:
-                    self.logger.info('[%d] Process OK: %s' % (self.id, item.resource.url))
-                    self.queue.discard(item)
-                else:
-                    self.logger.info("[%d] Can't retrieve: %s" % (self.id, item.resource.url))
-                    if self.queue.discard_or_retry(item):
-                        self.logger.info('[%d] Reached maximum retries, discarded.' % self.id)
-        except StopIteration:
-            pass
-        self.logger.log('Closed dispatcher #%d with %d resources downloaded and %d documents stored.' % (self.id, self.downloaded, self.stored))
-        self.logger.log('Total process time: %d seconds.' % round(time.time() - self.start_time, 2))
+                        self.logger.error('Unreachable: ' + item.resource.url)
+                    # Remove processed item from queue or retry
+                    if process_ok:
+                        self.logger.info('PROCESSED_OK', item.resource.url)
+                        self.queue.discard(item)
+                        self.parsed += 1
+                        self.write_status('RUNNING')
+                    else:
+                        self.logger.error("Can't retrieve: " + item.resource.url)
+                        if self.queue.discard_or_retry(item):
+                            self.logger.error('Reached maximum retries, discarded: ' + item.resource.url)
+                except StopIteration:
+                    self.write_status('WAITING')
+                    waits += 1
+                    self.logger.debug('Reached end of queue. %d waits.' % waits)
+                    time.sleep(randint(3, 7))
+        except (KeyboardInterrupt, SystemExit):
+            self.write_status('INTERRUPTED')
+            self.logger.debug('Thread interrupted.')
+            raise
+        except Exception as e:
+            self.logger.error('Thread %d aborted by unexpected error: %s' % (self.name, e))
+            self.write_status('ABORTED')
+            raise
+
+        self.write_status('FINISHED')
+        self.logger.info('THREAD_FINISHED')
+
+    def write_status(self, status):
+        self.logger.status(status, self.parsed, self.added, self.downloaded, self.start_time)
 
 
 def download(url):
