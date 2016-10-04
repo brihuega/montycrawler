@@ -30,13 +30,14 @@ class Dispatcher(Thread):
 
     next_id = 0
 
-    def __init__(self, queue, parser, logger, max_depth=None):
+    def __init__(self, queue, parser, logger, max_depth=None, download_folder='.'):
         Thread.__init__(self, name=str(Dispatcher.next_id))
         Dispatcher.next_id += 1
         self.queue = queue
         self.parser = parser
         self.logger = logger
         self.max_depth = max_depth
+        self.download_folder = download_folder
         self.parsed = 0
         self.downloaded = 0
         self.added = 0
@@ -97,6 +98,8 @@ class Dispatcher(Thread):
                                         self.write_status('RUNNING')
                                         self.logger.debug('%d resources in queue. %d added and %d rejected from %s' %
                                                             (len(self.queue), a, r, item.resource.url))
+                                        self.logger.console('Queue: %d resources. %d added from "%s".' %
+                                                            (len(self.queue), a, item.resource.url))
                                         process_ok = True
                                     else:
                                         self.logger.error("Can't decode: " + item.resource.url)
@@ -105,10 +108,11 @@ class Dispatcher(Thread):
                                     process_ok = True
                             elif mimetype == 'application/pdf':
                                 # Store PDF
-                                name = self.queue.store(item.resource, mimetype, filename, content)
+                                name = self.queue.store(item.resource, mimetype, self.download_folder, filename, content)
                                 self.downloaded += 1
                                 self.write_status('RUNNING')
                                 self.logger.debug('Added document "%s" from %s' % (name, item.resource.url))
+                                self.logger.console('Downloaded: ' + name)
                                 self.logger.info('DOWNLOADED', name)
                                 process_ok = True
                             else:

@@ -46,7 +46,9 @@ if __name__ == '__main__':
     opt_parser.add_option('-t', '--threads', type='int', dest='threads', default=10,
                           help='number of threads (default 10)')
     opt_parser.add_option('-R', '--retries', type='int', dest='retries', default=3,
-                          help='number of retries until resource in queue is discarded (default 3)')
+                          help='number of threads (default 10)')
+    opt_parser.add_option('-f', '--download-folder', type='string', dest='download_folder', default='files',
+                          help='destination folder for downloaded files (default "files")')
     opt_parser.add_option('-d', '--depth', type='int', dest='depth', default=5,
                           help='max depth in link search (default 5)')
     opt_parser.add_option('-v', '--verbose', dest='verbose',
@@ -90,7 +92,7 @@ if __name__ == '__main__':
     threads = []
     for i in range(0, options.threads):
         # Each thread gets its own parser instance
-        d = Dispatcher(queue, parser(), logger, max_depth=options.depth)
+        d = Dispatcher(queue, parser(), logger, max_depth=options.depth, download_folder=options.download_folder)
         d.start()
         threads.append(d)
     logger.console('Started %d threads.' % len(threads))

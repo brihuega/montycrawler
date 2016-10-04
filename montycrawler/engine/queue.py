@@ -3,6 +3,8 @@ from db.model import Pending, Base, Resource, Link, Document
 from db.utils import setupdb
 from threading import RLock
 import mimetypes
+import os
+import errno
 
 # Copyright 2016 Jose A. Brihuega Parodi <jose.brihuega@uca.es>
 
@@ -207,7 +209,7 @@ class Queue:
             self.session().commit()
         return n
 
-    def store(self, resource, mimetype, filename, content):
+    def store(self, resource, mimetype, folder, filename, content):
         """Stores document on filesystem"""
         # Clean filename
         cleaned = ''.join((c if c.isalnum() or c == '.' else '_' for c in filename))
@@ -220,7 +222,16 @@ class Queue:
         # Write to filesystem
         # Check binary or text mode
         mode = 'w' if mimetype.startswith('text/') else 'wb'
-        with open(cleaned, mode) as f:
+
+        # Check if folder exists, otherwise create it
+        try:
+            os.makedirs(folder)
+        except OSError as e:
+            if e.errno != errno.EEXIST:
+                raise
+
+        path = os.path.join(folder, cleaned)
+        with open(path, mode) as f:
             f.write(content)
         # Register on db
         doc = Document(name=resource.title, filename=cleaned, type=mimetype)
