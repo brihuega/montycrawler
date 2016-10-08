@@ -4,6 +4,8 @@ from db.model import Resource
 from engine.queue import Queue
 from engine.dispatcher import Dispatcher
 import time
+import os
+import errno
 from engine.logger import Logger
 
 # Copyright 2016 Jose A. Brihuega Parodi <jose.brihuega@uca.es>
@@ -59,10 +61,19 @@ if __name__ == '__main__':
     # Start logger
     logger = Logger(options.verbose)
     logger.console('Process started at %s' % time.strftime("%b %d %Y - %H:%M:%S", time.localtime(start_time)))
+
     # Obtain queue
     queue = Queue(options.reset, options.all_domains, options.retries)
     if options.reset:
         logger.console('Database wiped.')
+
+    # Check if download folder exists, otherwise create it
+    try:
+        os.makedirs(options.download_folder)
+        logger.console('Folder "%s" created.' % os.path.abspath(options.download_folder))
+    except OSError as e:
+        if e.errno != errno.EEXIST:
+            raise
 
     # Section A: Add URL to pending queue
     if len(args) == 1:
@@ -85,7 +96,7 @@ if __name__ == '__main__':
     parser = getattr(mod, class_name)
     logger.console('Parser %s loaded.' % parser.__name__)
 
-    # Section B: Process queue
+    # Section C: Process queue
     # We will start dispatcher's threads with a random interval
     logger.console('%d resources in the pending queue.' % len(queue))
     # Start all threads

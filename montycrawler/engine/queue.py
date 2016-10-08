@@ -222,14 +222,6 @@ class Queue:
         # Write to filesystem
         # Check binary or text mode
         mode = 'w' if mimetype.startswith('text/') else 'wb'
-
-        # Check if folder exists, otherwise create it
-        try:
-            os.makedirs(folder)
-        except OSError as e:
-            if e.errno != errno.EEXIST:
-                raise
-
         path = os.path.join(folder, cleaned)
         with open(path, mode) as f:
             f.write(content)

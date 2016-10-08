@@ -16,7 +16,6 @@ from html.parser import HTMLParser
 
 # You should have received a copy of the GNU General Public License
 # along with Montycrawler.  If not, see <http://www.gnu.org/licenses/>.
-from random import randint
 
 
 class SimpleParser(HTMLParser):
@@ -61,5 +60,4 @@ class SimpleParser(HTMLParser):
         self.current = None
         if tag == 'title' and self.title == '_empty_':
             self.title = None
-
 
