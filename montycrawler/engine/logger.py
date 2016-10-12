@@ -37,6 +37,8 @@ class Logger:
             Message(label='PROCESSED_OK'),
             Message(label='THREAD_STARTED'),
             Message(label='THREAD_FINISHED'),
+            Message(label='THREAD_ABORTED'),
+            Message(label='DOWNLOADED'),
         )
         self.session().bulk_save_objects(messages)
 
@@ -74,6 +76,7 @@ class Logger:
         with self.lock:
             stat = self.session().query(ThreadStatus).filter_by(thread=current_thread().name).one_or_none()
             if stat is None:
+                # TODO log actual running time
                 stat = ThreadStatus(thread=current_thread().name,
                                     status=status,
                                     parsed=parsed,
@@ -82,10 +85,14 @@ class Logger:
                                     running_time=round(time.time() - start_time, 0))
                 self.session().add(stat)
             else:
-                stat.status=status
-                stat.parsed=parsed
-                stat.added=added
-                stat.downloaded=downloaded
-                stat.running_time=round(time.time() - start_time, 0)
+                stat.status = status
+                stat.parsed = parsed
+                stat.added = added
+                stat.downloaded = downloaded
+                stat.running_time = round(time.time() - start_time, 0)
 
             self.session().commit()
+
+    def some_running(self):
+        with self.lock:
+            return self.session().query(ThreadStatus).filter_by(status='RUNNING').count() > 0

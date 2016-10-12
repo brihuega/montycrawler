@@ -25,6 +25,24 @@ from engine.logger import Logger
 # You should have received a copy of the GNU General Public License
 # along with Montycrawler.  If not, see <http://www.gnu.org/licenses/>.
 
+# TODO support for robots.txt
+
+
+def load_class(name):
+    """Utility to load classes"""
+    module_path, _, class_name = name.rpartition('.')
+    mod = import_module(module_path)
+    return getattr(mod, class_name)
+
+
+def create_folder(path):
+    """Utility to create folder if don't exists"""
+    try:
+        os.makedirs(path)
+        logger.console('Folder "%s" created.' % os.path.abspath(path))
+    except OSError as e:
+        if e.errno != errno.EEXIST:
+            raise
 
 # Main program
 if __name__ == '__main__':
@@ -42,6 +60,9 @@ if __name__ == '__main__':
     opt_parser.add_option('--parser', dest='parser',
                           help="use CLASS to parse content (default SimpleParser)", metavar="CLASS",
                           default='parsing.SimpleParser')
+    opt_parser.add_option('--processor', dest='processor',
+                          help="use CLASS to process documents (default PDFProcessor)", metavar="CLASS",
+                          default='processing.PDFProcessor')
     opt_parser.add_option('-a', '--all-domains', dest='all_domains',
                           action='store_true',
                           help='add resources from any domain (default only from the same base domain)')
@@ -49,10 +70,16 @@ if __name__ == '__main__':
                           help='number of threads (default 10)')
     opt_parser.add_option('-R', '--retries', type='int', dest='retries', default=3,
                           help='number of threads (default 10)')
+    opt_parser.add_option('-k', '--keywords', type='string', dest='keywords',
+                          help='list of relevant keywords (comma separated without spaces)')
     opt_parser.add_option('-f', '--download-folder', type='string', dest='download_folder', default='files',
                           help='destination folder for downloaded files (default "files")')
+    opt_parser.add_option('-F', '--rejected-folder', type='string', dest='rejected_folder',
+                          help="destination folder for rejected files (default, don't store them)")
     opt_parser.add_option('-d', '--depth', type='int', dest='depth', default=5,
                           help='max depth in link search (default 5)')
+    opt_parser.add_option('-m', '--min-relevancy', type='float', dest='min_relevancy', default=1,
+                          help='Minimum relevancy score to accept documents (only if keywords supplied) (default 1)')
     opt_parser.add_option('-v', '--verbose', dest='verbose',
                           action='store_true',
                           help='verbose output')
@@ -67,13 +94,16 @@ if __name__ == '__main__':
     if options.reset:
         logger.console('Database wiped.')
 
-    # Check if download folder exists, otherwise create it
-    try:
-        os.makedirs(options.download_folder)
-        logger.console('Folder "%s" created.' % os.path.abspath(options.download_folder))
-    except OSError as e:
-        if e.errno != errno.EEXIST:
-            raise
+    # Check if download folders exist, otherwise create them
+    create_folder(options.download_folder)
+    if options.rejected_folder:
+        create_folder(options.rejected_folder)
+
+    # Split list of keywords
+    if options.keywords:
+        keywords = options.keywords.split(',')
+    else:
+        keywords = None
 
     # Section A: Add URL to pending queue
     if len(args) == 1:
@@ -89,12 +119,11 @@ if __name__ == '__main__':
         else:
             logger.console('URL "%s" added to the queue.' % item.resource.url)
 
-    # Section B: Get parser
-    # Import given class name
-    module_path, _, class_name = options.parser.rpartition('.')
-    mod = import_module(module_path)
-    parser = getattr(mod, class_name)
+    # Section B: Get parser and processor
+    parser = load_class(options.parser)
     logger.console('Parser %s loaded.' % parser.__name__)
+    processor = load_class(options.processor)
+    logger.console('Processor %s loaded.' % processor.__name__)
 
     # Section C: Process queue
     # We will start dispatcher's threads with a random interval
@@ -103,7 +132,11 @@ if __name__ == '__main__':
     threads = []
     for i in range(0, options.threads):
         # Each thread gets its own parser instance
-        d = Dispatcher(queue, parser(), logger, max_depth=options.depth, download_folder=options.download_folder)
+        d = Dispatcher(queue, parser(keywords=keywords), processor(keywords=keywords), logger,
+                       max_depth=options.depth,
+                       download_folder=options.download_folder,
+                       rejected_folder=options.rejected_folder,
+                       min_relevancy=options.min_relevancy if keywords else 0)
         d.start()
         threads.append(d)
     logger.console('Started %d threads.' % len(threads))
@@ -113,6 +146,3 @@ if __name__ == '__main__':
 
     logger.console('Exiting.  Process completed at %s in %d seconds.' %
                    (time.strftime('%b %d %Y - %H:%M:%S', time.localtime()), round(time.time() - start_time, 2)))
-
-
-

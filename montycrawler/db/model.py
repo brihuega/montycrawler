@@ -1,6 +1,6 @@
 import uuid
 import datetime
-from sqlalchemy import Integer, Column, String, DateTime, ForeignKey, Text
+from sqlalchemy import Integer, Column, String, DateTime, ForeignKey, Text, Boolean, Numeric
 from sqlalchemy.orm import relationship, backref
 from sqlalchemy.ext.declarative import declarative_base
 
@@ -28,8 +28,13 @@ class Document(Base):
     __tablename__ = 'documents'
     id = Column(Integer, primary_key=True)
     name = Column(Text())
+    author = Column(Text())
+    meta_data = Column(Text())
     type = Column(String(60))
     filename = Column(String(255))
+    relevancy = Column(Numeric(10, 1))
+    num_pages = Column(Integer)
+    accepted = Column(Boolean)
     timestamp = Column(DateTime, default=datetime.datetime.utcnow)
     uuid = Column(String(32), unique=True, default=lambda: str(uuid.uuid4()))
 

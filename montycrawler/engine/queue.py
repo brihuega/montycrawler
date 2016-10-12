@@ -4,7 +4,7 @@ from db.utils import setupdb
 from threading import RLock
 import mimetypes
 import os
-import errno
+import json
 
 # Copyright 2016 Jose A. Brihuega Parodi <jose.brihuega@uca.es>
 
@@ -142,7 +142,7 @@ class Queue:
                     old = existing.first()
                     # Override priority if bigger
                     if priority is not None and \
-                        (old.priority is None or priority > old.priority):
+                            (old.priority is None or priority > old.priority):
                         old.priority = priority
                         self.session().commit()
                         self.insert((old.id, priority))
@@ -166,11 +166,12 @@ class Queue:
             self.session().commit()
         for u, t, p in links:
             try:
-                # Add url to queue
-                (p, new) = self.add(Resource(url=u, title=t), referrer=ref, priority=p)
-                # Create link
-                self.session().add(Link(text=t, referrer=ref.resource, target=p.resource))
-                self.session().commit()
+                with self.lock:
+                    # Add url to queue
+                    (p, new) = self.add(Resource(url=u, title=t), referrer=ref, priority=p)
+                    # Create link
+                    self.session().add(Link(text=t, referrer=ref.resource, target=p.resource))
+                    self.session().commit()
                 if new:
                     added += 1
             except UrlNotValidError:
@@ -209,7 +210,7 @@ class Queue:
             self.session().commit()
         return n
 
-    def store(self, resource, mimetype, folder, filename, content):
+    def store(self, accepted, resource, mimetype, folder, rejected_folder, filename, metadata, content):
         """Stores document on filesystem"""
         # Clean filename
         cleaned = ''.join((c if c.isalnum() or c == '.' else '_' for c in filename))
@@ -220,13 +221,21 @@ class Queue:
         # Append ID to avoid collision
         cleaned = str(resource.id) + '_' + cleaned
         # Write to filesystem
-        # Check binary or text mode
-        mode = 'w' if mimetype.startswith('text/') else 'wb'
-        path = os.path.join(folder, cleaned)
-        with open(path, mode) as f:
-            f.write(content)
+        if accepted or rejected_folder:
+            # Check binary or text mode
+            mode = 'w' if mimetype.startswith('text/') else 'wb'
+            path = os.path.join(folder if accepted else rejected_folder, cleaned)
+            with open(path, mode) as f:
+                f.write(content)
         # Register on db
-        doc = Document(name=resource.title, filename=cleaned, type=mimetype)
+        doc = Document(name=resource.title if metadata.get('/Title') is None else metadata.get('/Title'),
+                       author=metadata.get('/Author'),
+                       meta_data=json.dumps(metadata),
+                       filename=cleaned,
+                       type=mimetype,
+                       relevancy=metadata.get('_relevancy'),
+                       num_pages=metadata.get('_num_pages'),
+                       accepted=accepted)
         self.session().add(doc)
         resource.document = doc
         self.session().commit()
@@ -237,9 +246,11 @@ class UrlNotValidError(ValueError):
     """Base exception raised when the URL provided is invalid for program's purpose"""
     pass
 
+
 class MalformedUrlError(UrlNotValidError):
     """Exception raised when the URL is malformed or protocol is not supported."""
     pass
+
 
 class NotInBaseDomainError(UrlNotValidError):
     """Exception raised when the URL provided isn't from the same base domain."""

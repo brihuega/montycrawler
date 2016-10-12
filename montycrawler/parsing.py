@@ -21,7 +21,7 @@ from html.parser import HTMLParser
 class SimpleParser(HTMLParser):
     """Extracts all links from HTML document"""
 
-    def __init__(self):
+    def __init__(self, *args, **kwargs):
         super().__init__()
         self.links = None
         self.current = None

@@ -24,20 +24,28 @@ from random import randint
 # You should have received a copy of the GNU General Public License
 # along with Montycrawler.  If not, see <http://www.gnu.org/licenses/>.
 
+# TODO finish thread gracefully on unexpected errors
+
 
 class Dispatcher(Thread):
     """Thread based queue processor"""
 
     next_id = 0
 
-    def __init__(self, queue, parser, logger, max_depth=None, download_folder='.'):
+    def __init__(self, queue, parser, processor,
+                 logger, max_depth,
+                 download_folder, rejected_folder,
+                 min_relevancy):
         Thread.__init__(self, name=str(Dispatcher.next_id))
         Dispatcher.next_id += 1
         self.queue = queue
         self.parser = parser
+        self.processor = processor
         self.logger = logger
         self.max_depth = max_depth
         self.download_folder = download_folder
+        self.rejected_folder = rejected_folder
+        self.min_relevancy = min_relevancy
         self.parsed = 0
         self.downloaded = 0
         self.added = 0
@@ -50,9 +58,10 @@ class Dispatcher(Thread):
         # Random time between 3 and 7 seconds waiting to fill queue
         time.sleep(randint(3, 7))
         try:
-            # Iterate until end of queue reached and 15 additional wait periods
+            # Iterate until there're no other threads running
             waits = 0
-            while waits < 15:
+            self.write_status('RUNNING')
+            while self.logger.some_running():
                 try:
                     item = next(self.queue)
                     self.write_status('RUNNING')
@@ -90,14 +99,14 @@ class Dispatcher(Thread):
                                         (title, item_list) = self.parser.parse(decoded)
                                         for link, text, priority in item_list:
                                             self.logger.debug('Found "%s" (p=%s) (%s)' %
-                                                             (link,
-                                                              'N' if priority is None else str(priority),
-                                                              text[:40] if text is not None else ''))
+                                                              (link,
+                                                               'N' if priority is None else str(priority),
+                                                               text[:40] if text is not None else ''))
                                         (a, r) = self.queue.add_list(item, title, item_list)
                                         self.added += a
                                         self.write_status('RUNNING')
                                         self.logger.debug('%d resources in queue. %d added and %d rejected from %s' %
-                                                            (len(self.queue), a, r, item.resource.url))
+                                                          (len(self.queue), a, r, item.resource.url))
                                         self.logger.console('Queue: %d resources. %d added from "%s".' %
                                                             (len(self.queue), a, item.resource.url))
                                         process_ok = True
@@ -107,17 +116,24 @@ class Dispatcher(Thread):
                                     self.logger.info('MAX_DEPTH_REACHED', item.resource.url)
                                     process_ok = True
                             elif mimetype == 'application/pdf':
+                                # Process
+                                (relevancy, metadata) = self.processor.process(content, mimetype)
                                 # Store PDF
-                                name = self.queue.store(item.resource, mimetype, self.download_folder, filename, content)
+                                name = self.queue.store(relevancy >= self.min_relevancy,
+                                                        item.resource, mimetype,
+                                                        self.download_folder,
+                                                        self.rejected_folder,
+                                                        filename, metadata, content)
                                 self.downloaded += 1
                                 self.write_status('RUNNING')
-                                self.logger.debug('Added document "%s" from %s' % (name, item.resource.url))
-                                self.logger.console('Downloaded: ' + name)
+                                self.logger.debug('Got document "%s" (relevancy=%d) from %s' %
+                                                  (name, relevancy, item.resource.url))
+                                self.logger.console('Document found (relevancy %.1f): %s' % (relevancy, name))
                                 self.logger.info('DOWNLOADED', name)
                                 process_ok = True
                             else:
                                 self.logger.debug('Discarded type "%s" from %s' %
-                                                 (mimetype, item.resource.url))
+                                                  (mimetype, item.resource.url))
                         else:
                             self.logger.error('Got code %d retrieving %s' % (code, item.resource.url))
                     else:
@@ -142,7 +158,8 @@ class Dispatcher(Thread):
             self.logger.debug('Thread interrupted.')
             raise
         except Exception as e:
-            self.logger.error('Thread %d aborted by unexpected error: %s' % (self.name, e))
+            self.logger.error('Thread %s aborted by unexpected error: %s' % (self.name, e))
+            self.logger.info('THREAD_ABORTED', self.name)
             self.write_status('ABORTED')
             raise
 
@@ -155,7 +172,6 @@ class Dispatcher(Thread):
 
 def download(url):
     """Download URL content and obtain mime type"""
-    code = None
     response = None
     try:
         response = request.urlopen(url)
