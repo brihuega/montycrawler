@@ -22,8 +22,13 @@ import time
 
 
 class Logger:
-    """Generate and store logs in a separate detabase"""
+    """Generate and store logs in a separate database"""
     def __init__(self, verbose=False):
+        """Initialize logger.
+
+        Args:
+            verbose: T/F dump all messages to console (by default only errors).
+        """
         self.verbose = verbose
         self.session = setupdb('log', Base, True)
         self.lock = RLock()
@@ -47,9 +52,24 @@ class Logger:
         self.session().commit()
 
     def console(self, text):
+        """Prints text to console.
+
+        Args:
+            text: The text.
+        """
         print(text)
 
     def info(self, message, text=None, level='INFO'):
+        """Write message to logs (`INFO` level by default)
+
+        Args:
+            message: Message label.
+            text: Message text.
+            level: Message level (`INFO`, `ERROR` or `DEBUG`)
+
+        Returns:
+
+        """
         # Write to console
         if self.verbose or level == 'ERROR':
             if text:
@@ -67,12 +87,31 @@ class Logger:
             self.session().commit()
 
     def error(self, text):
+        """Write error message to logs.
+
+        Args:
+            text: Error text.
+        """
         self.info('ERROR', text, 'ERROR')
 
     def debug(self, text):
+        """Write debug message to logs.
+
+        Args:
+            text: Debug text.
+        """
         self.info('DEBUG', text, 'DEBUG')
 
     def status(self, status, parsed, added, downloaded, start_time):
+        """Write thread status info.
+
+        Args:
+            status: Status code.
+            parsed: Number of links parsed.
+            added: Number of links added.
+            downloaded: Number of documents downloaded.
+            start_time: Start time.
+        """
         with self.lock:
             stat = self.session().query(ThreadStatus).filter_by(thread=current_thread().name).one_or_none()
             if stat is None:
@@ -94,5 +133,6 @@ class Logger:
             self.session().commit()
 
     def some_running(self):
+        """Checks if there's any thread in `RUNNING` status."""
         with self.lock:
             return self.session().query(ThreadStatus).filter_by(status='RUNNING').count() > 0

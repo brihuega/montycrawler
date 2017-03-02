@@ -19,15 +19,21 @@ from sqlalchemy import Integer, Column, String, DateTime
 # You should have received a copy of the GNU General Public License
 # along with Montycrawler.  If not, see <http://www.gnu.org/licenses/>.
 
+"""Data model for the logging database.
+
+Based on the declarative base for SQLAlchemy.
+"""
 Base = declarative_base()
 
 
 class Message(Base):
+    """Table of available message codes."""
     __tablename__ = 'messages'
     label = Column(String(25), primary_key=True)
 
 
 class LogEntry(Base):
+    """Table of log entries."""
     __tablename__ = 'log_entries'
     id = Column(Integer, primary_key=True)
     type = Column(String(5))
@@ -38,6 +44,7 @@ class LogEntry(Base):
 
 
 class ThreadStatus(Base):
+    """This table stores one row for each thread with status info."""
     __tablename__ = 'thread_status'
     id = Column(Integer, primary_key=True)
     thread = Column(String(6), unique=True)
@@ -47,6 +54,4 @@ class ThreadStatus(Base):
     added = Column(Integer)
     downloaded = Column(Integer)
     timestamp = Column(DateTime, default=datetime.datetime.utcnow)
-
-
 

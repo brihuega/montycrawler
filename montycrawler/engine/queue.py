@@ -24,9 +24,31 @@ import json
 # along with Montycrawler.  If not, see <http://www.gnu.org/licenses/>.
 
 # TODO: queue stats
+
+
 class Queue:
-    """Manages the pending queue as an iterator"""
+    """Manages the pending queue as an iterator.
+
+    Retrieves the pending items from the database and manages the queue
+    inserting and discarding them as requested by the dispatchers.
+
+    Note:
+        This class manages all database operations, including the initial setup.
+        All operations have been isolated in one instance in order to avoid
+        concurrent access to database (as SQLite doesn't support concurrency).
+        It uses the `scoped session` paradigm of the SQLAlchemy engine, so each
+        thread has its own session. An extra lock mechanism has been added to
+        avoid collisions.
+
+    """
     def __init__(self, reset=False, all_domains=False, retries=3):
+        """Class initialization.
+
+        Args:
+            reset: T/F wipe database before start.
+            all_domains: T = retrieve resources from any domain. F = only from origin domain.
+            retries: Number of times to retry before discarding a resource as unreachable.
+        """
         self.all_domains = all_domains
         self.retries = retries
         self.lock = RLock()
@@ -46,12 +68,24 @@ class Queue:
         self.urlcache = [res.url for res in resources]
 
     def __len__(self):
+        """Magic method for len()
+        Returns:
+            Length of the queue
+        """
         return len(self.queue)
 
     def __iter__(self):
+        """Magic method for iter()
+        Returns:
+            Iterable instance of the queue (self)
+        """
         return self
 
     def __next__(self):
+        """Magic method for next()
+        Returns:
+            Next item in the queue (`Pending` instance).
+        """
         # Make queue operation atomic
         with self.lock:
             if self.queue:
@@ -64,6 +98,10 @@ class Queue:
                 raise StopIteration
 
     def insert(self, item):
+        """Inserts an item in the queue.
+        Args:
+            item: `Pending` item.
+        """
         """Ordered insert element on the cached queue"""
         # Items are tuples of (id, priority)
         i, p = item
@@ -158,7 +196,17 @@ class Queue:
                 return new, True
 
     def add_list(self, ref, title, links):
-        """Adds resources to the queue from a list of links"""
+        """Adds resources to the queue from a list of links.
+        Args:
+            ref: Referrer resource.
+            title: Referrer title.
+            links: List of links (tuples):
+                URL
+                Title
+                Priority
+        Returns:
+            Number of items added and rejected (tuple).
+        """
         added = 0
         rejected = 0
         if title:
@@ -179,6 +227,14 @@ class Queue:
         return added, rejected
 
     def discard_or_retry(self, item):
+        """If a failed item has reached its maximum retries, discard it. It not, increase
+        retry count, decrease to half priority and re-insert it in the queue.
+
+        Args:
+            item: The item
+        Returns:
+            T/F the item was deleted.
+        """
         with self.lock:
             if item.retries + 1 >= self.retries:
                 self.session().delete(item)
@@ -195,7 +251,10 @@ class Queue:
                 return False
 
     def discard(self, item):
-        """Remove resource from pending items in database (if exists)"""
+        """Remove resource from pending items in database (if exists).
+        Args:
+            item: The item to be removed.
+        """
         with self.lock:
             self.session().delete(item)
             self.session().commit()
@@ -211,7 +270,19 @@ class Queue:
         return n
 
     def store(self, accepted, resource, mimetype, folder, rejected_folder, filename, metadata, content):
-        """Stores document on filesystem"""
+        """Stores a document on filesystem and creates a new `Document` instance on database.
+        Args:
+            accepted: T/F write the document in the `accepted` folder, otherwise on `rejected`.
+            resource: The URL resource where the document was retrieved from.
+            mimetype: Standard MIME id for the type of content.
+            folder: Path to the `accepted` folder.
+            rejected_folder: Path to the `rejected` folder (content discarded if path is empty).
+            filename: Name for the file (it will be cleaned from not allowed chars).
+            metadata: Metadata dictionary for the document.
+            content: The binary content to be stored.
+        Returns:
+            The final name of the file (even it was written or not).
+        """
         # Clean filename
         cleaned = ''.join((c if c.isalnum() or c == '.' else '_' for c in filename))
         # Append extension
@@ -228,17 +299,18 @@ class Queue:
             with open(path, mode) as f:
                 f.write(content)
         # Register on db
-        doc = Document(name=resource.title if metadata.get('/Title') is None else metadata.get('/Title'),
-                       author=metadata.get('/Author'),
-                       meta_data=json.dumps(metadata),
-                       filename=cleaned,
-                       type=mimetype,
-                       relevancy=metadata.get('_relevancy'),
-                       num_pages=metadata.get('_num_pages'),
-                       accepted=accepted)
-        self.session().add(doc)
-        resource.document = doc
-        self.session().commit()
+        with self.lock:
+            doc = Document(name=resource.title if metadata.get('/Title') is None else metadata.get('/Title'),
+                           author=metadata.get('/Author'),
+                           meta_data=json.dumps(metadata),
+                           filename=cleaned,
+                           type=mimetype,
+                           relevancy=metadata.get('_relevancy'),
+                           num_pages=metadata.get('_num_pages'),
+                           accepted=accepted)
+            self.session().add(doc)
+            resource.document = doc
+            self.session().commit()
         return cleaned
 
 
@@ -248,10 +320,10 @@ class UrlNotValidError(ValueError):
 
 
 class MalformedUrlError(UrlNotValidError):
-    """Exception raised when the URL is malformed or protocol is not supported."""
+    """The URL is malformed or protocol is not supported."""
     pass
 
 
 class NotInBaseDomainError(UrlNotValidError):
-    """Exception raised when the URL provided isn't from the same base domain."""
+    """The URL provided isn't from the same base domain."""
     pass

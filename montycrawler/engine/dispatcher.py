@@ -28,7 +28,11 @@ from random import randint
 
 
 class Dispatcher(Thread):
-    """Thread based queue processor"""
+    """Thread based queue processor
+
+    Each thread, gets next pending resource, downloads content and send it
+    to the parser (HTML content) or the processor (PDF content).
+    """
 
     next_id = 0
 
@@ -36,6 +40,18 @@ class Dispatcher(Thread):
                  logger, max_depth,
                  download_folder, rejected_folder,
                  min_relevancy):
+        """Initialize dispatcher instance.
+
+        Args:
+            queue: The `Queue` object.
+            parser: Parser instance to find links.
+            processor: Processor instance to analyze PDF content.
+            logger: Logger instance.
+            max_depth: Maximum number of recursive link levels.
+            download_folder: Path to the folder to store accepted documents.
+            rejected_folder: Path to the folder to store rejected documents (if empty, they're discarded).
+            min_relevancy: Minimum relevancy tof PDF documents to be stored or rejected.
+        """
         Thread.__init__(self, name=str(Dispatcher.next_id))
         Dispatcher.next_id += 1
         self.queue = queue
@@ -52,6 +68,7 @@ class Dispatcher(Thread):
         self.start_time = None
 
     def run(self):
+        """Dispatcher's main program"""
         self.start_time = time.time()
         self.logger.info('THREAD_STARTED')
         self.write_status('WAITING')
@@ -171,7 +188,20 @@ class Dispatcher(Thread):
 
 
 def download(url):
-    """Download URL content and obtain mime type"""
+    """Helper function to download URL content and obtain mime type.
+        Args:
+            url: URL to download.
+        Returns:
+            Tuple:
+                HTTP status code.
+                MIME type taken from protocol headers.
+                File name from headers (or guessed from URL).
+                Binary content.
+                Content encoding taken from headers.
+        Raises:
+            HTTPError: Protocol error.
+            URLError: URL incorrect.
+    """
     response = None
     try:
         response = request.urlopen(url)

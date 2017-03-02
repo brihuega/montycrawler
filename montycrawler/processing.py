@@ -20,11 +20,24 @@ from PyPDF2 import PdfFileReader
 
 
 class PDFProcessor:
-    """Get metadata and guess relevancy od a PDF document"""
+    """Get metadata and guess relevancy of PDF documents"""
     def __init__(self, keywords=None):
+        """Initialize the processor.
+        Args:
+            keywords: List of relevant keywords to search.
+        """
         self.keywords = keywords
 
     def process(self, content, mimetype='application/pdf'):
+        """Process a PDF document.
+        Args:
+            content: Binary content of the document.
+            mimetype: Id of MIME type (content ignored if it isn't `application/pdf`).
+        Returns:
+            Tuple:
+                Relevancy of the document (based on keywords)
+                Metadata extracted from the document (dictionary).
+        """
         relevancy = 0
         metadata = {}
         if mimetype == 'application/pdf':

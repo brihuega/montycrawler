@@ -1,5 +1,3 @@
-from html.parser import HTMLParser
-
 # Copyright 2016 Jose A. Brihuega Parodi <jose.brihuega@uca.es>
 
 # This file is part of Montycrawler.
@@ -17,23 +15,56 @@ from html.parser import HTMLParser
 # You should have received a copy of the GNU General Public License
 # along with Montycrawler.  If not, see <http://www.gnu.org/licenses/>.
 
+from html.parser import HTMLParser
+
 
 class SimpleParser(HTMLParser):
-    """Extracts all links from HTML document"""
-
+    """Extracts all links and the title from HTML source."""
     def __init__(self, *args, **kwargs):
+        """Initializes an empty parser
+
+        Note:
+            Arguments are present for compatibility with other parsers, but ignored.
+
+        Args:
+            *args: Ignored.
+            **kwargs: Ignored.
+        """
         super().__init__()
         self.links = None
         self.current = None
         self.title = None
 
     def parse(self, text):
-        """Run parse process. Not multithread safe on the same instance."""
+        """Run parse process.
+
+        Note:
+            This process isn't multithread safe on the same instance.
+
+        Args:
+            text: HTML source to be parsed.
+
+        Returns:
+            Tuple of:
+                Title of page (str)
+                List of tuples of:
+                    Link (str)
+                    Text of link (str)
+                    Priority (None)
+
+        """
         self.links = []
         self.feed(text)
         return self.title, self.links
 
     def handle_starttag(self, tag, attrs):
+        """Hook function for start tags.
+
+        Args:
+            tag: HTML tag (str)
+            attrs: Tag attributes (list of tuples of str and str)
+
+        """
         if tag == 'a':
             for name, value in attrs:
                 if name == 'href':
@@ -44,12 +75,24 @@ class SimpleParser(HTMLParser):
                 self.title = '_empty_'
 
     def handle_data(self, data):
+        """Hook function for HTML data between tags.
+
+        Args:
+            data: Text between tags (str)
+
+        """
         if self.current:
             self.current += (data,)
         if self.title == '_empty_':
             self.title = data
 
     def handle_endtag(self, tag):
+        """Hook function for end tags
+
+        Args:
+            tag: HTML tag (str)
+
+        """
         if tag == 'a' and self.current:
             # Force tuples of 2 elements
             if len(self.current) != 2:

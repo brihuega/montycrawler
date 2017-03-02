@@ -1,13 +1,3 @@
-from importlib import import_module
-from optparse import OptionParser
-from db.model import Resource
-from engine.queue import Queue
-from engine.dispatcher import Dispatcher
-import time
-import os
-import errno
-from engine.logger import Logger
-
 # Copyright 2016 Jose A. Brihuega Parodi <jose.brihuega@uca.es>
 
 # This file is part of Montycrawler.
@@ -25,18 +15,52 @@ from engine.logger import Logger
 # You should have received a copy of the GNU General Public License
 # along with Montycrawler.  If not, see <http://www.gnu.org/licenses/>.
 
+"""Montycrawler: A multithreaded web crawler designed to obtain and analyze PDF documents.
+
+Author:
+    Jose A. Brihuega Parodi <jose.brihuega@uca.es>
+
+Usage:
+    python mc.py [options] [URL]
+    Use option --help for details.
+
+"""
+
+from importlib import import_module
+from optparse import OptionParser
+from db.model import Resource
+from engine.queue import Queue
+from engine.dispatcher import Dispatcher
+import time
+import os
+import errno
+from engine.logger import Logger
+
 # TODO support for robots.txt
 
 
 def load_class(name):
-    """Utility to load classes"""
+    """Utility function to load a class.
+
+    Args:
+        name: Full class/module name.
+
+    Returns:
+        The loaded class.
+
+    """
     module_path, _, class_name = name.rpartition('.')
     mod = import_module(module_path)
     return getattr(mod, class_name)
 
 
 def create_folder(path):
-    """Utility to create folder if don't exists"""
+    """Utility function to create folder if it doesn't exist.
+
+    Args:
+        path: The path.
+
+    """
     try:
         os.makedirs(path)
         logger.console('Folder "%s" created.' % os.path.abspath(path))
