@@ -51,9 +51,9 @@ class PDFProcessor:
             metadata['_num_pages'] = doc.getNumPages()
             # Process title, subject and metadata keywords
             # TODO guess title from page text when not provided
-            relevant = (metadata.get('/Title') + ' ' +
-                        metadata.get('/Subject') + ' ' +
-                        metadata.get('/Keywords')).lower()
+            relevant = (metadata.get('/Title', '') + ' ' +
+                        metadata.get('/Subject', '') + ' ' +
+                        metadata.get('/Keywords', '')).lower()
             for word in self.keywords:
                 if word.lower() in relevant:
                     # Each relevant keyword increases relevancy in 10 points
@@ -64,9 +64,13 @@ class PDFProcessor:
                 # Break if factor is too low
                 if distance_factor < 0.01:
                     break
-                text = doc.getPage(p).extractText().lower()
-                for word in self.keywords:
-                    relevancy += distance_factor * text.count(word.lower())
+                try:
+                    text = doc.getPage(p).extractText().lower()
+                    for word in self.keywords:
+                        relevancy += distance_factor * text.count(word.lower())
+                except Exception as ex:
+                    # Some bad formed PDFs raise decoding errors. Skip page.
+                    pass
                 # Each new page reduces relevancy factor in a half
                 distance_factor /= 2
         # Relevancy is significant by the nearest tenth

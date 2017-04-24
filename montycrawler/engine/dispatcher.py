@@ -1,8 +1,7 @@
 from threading import Thread
 import time
-from urllib import request, error
+from urllib import request, error, robotparser, parse
 import posixpath
-from urllib.parse import urlparse
 import datetime
 import sys
 from random import randint
@@ -23,8 +22,6 @@ from random import randint
 
 # You should have received a copy of the GNU General Public License
 # along with Montycrawler.  If not, see <http://www.gnu.org/licenses/>.
-
-# TODO finish thread gracefully on unexpected errors
 
 
 class Dispatcher(Thread):
@@ -66,6 +63,7 @@ class Dispatcher(Thread):
         self.downloaded = 0
         self.added = 0
         self.start_time = None
+        self.robots_cache = {}
 
     def run(self):
         """Dispatcher's main program"""
@@ -83,7 +81,7 @@ class Dispatcher(Thread):
                     item = next(self.queue)
                     self.write_status('RUNNING')
                     self.logger.info('PROCESS_URL', item.resource.url)
-                    code, mimetype, filename, content, encoding = download(item.resource.url)
+                    code, mimetype, filename, content, encoding = self.download(item.resource.url)
                     # Manage response
                     process_ok = False
                     if code:
@@ -134,23 +132,31 @@ class Dispatcher(Thread):
                                     process_ok = True
                             elif mimetype == 'application/pdf':
                                 # Process
-                                (relevancy, metadata) = self.processor.process(content, mimetype)
-                                # Store PDF
-                                name = self.queue.store(relevancy >= self.min_relevancy,
-                                                        item.resource, mimetype,
-                                                        self.download_folder,
-                                                        self.rejected_folder,
-                                                        filename, metadata, content)
-                                self.downloaded += 1
-                                self.write_status('RUNNING')
-                                self.logger.debug('Got document "%s" (relevancy=%d) from %s' %
-                                                  (name, relevancy, item.resource.url))
-                                self.logger.console('Document found (relevancy %.1f): %s' % (relevancy, name))
-                                self.logger.info('DOWNLOADED', name)
+                                try:
+                                    (relevancy, metadata) = self.processor.process(content, mimetype)
+                                    # Store PDF
+                                    name = self.queue.store(relevancy >= self.min_relevancy,
+                                                            item.resource, mimetype,
+                                                            self.download_folder,
+                                                            self.rejected_folder,
+                                                            filename, metadata, content)
+                                    self.downloaded += 1
+                                    self.write_status('RUNNING')
+                                    self.logger.debug('Got document "%s" (relevancy=%d) from %s' %
+                                                      (name, relevancy, item.resource.url))
+                                    self.logger.console('Document found (relevancy %.1f): %s' % (relevancy, name))
+                                    self.logger.info('DOWNLOADED', name)
+                                except Exception as ex:
+                                    # Error processing
+                                    self.logger.error('Exception processing document: %s' % (str(type(ex)) + ' ' + str(ex)))
                                 process_ok = True
                             else:
                                 self.logger.debug('Discarded type "%s" from %s' %
                                                   (mimetype, item.resource.url))
+                        elif code == -1:
+                            # The URL was disallowed by robots.txt
+                            self.logger.info('DISALLOWED', item.resource.url)
+                            self.queue.discard(item)
                         else:
                             self.logger.error('Got code %d retrieving %s' % (code, item.resource.url))
                     else:
@@ -162,9 +168,11 @@ class Dispatcher(Thread):
                         self.parsed += 1
                         self.write_status('RUNNING')
                     else:
-                        self.logger.error("Can't retrieve: " + item.resource.url)
-                        if self.queue.discard_or_retry(item):
-                            self.logger.error('Reached maximum retries, discarded: ' + item.resource.url)
+                        # Code -1 (disallowed) yet logged
+                        if code != -1:
+                            self.logger.error("Can't retrieve: " + item.resource.url)
+                            if self.queue.discard_or_retry(item):
+                                self.logger.error('Reached maximum retries, discarded: ' + item.resource.url)
                 except StopIteration:
                     self.write_status('WAITING')
                     waits += 1
@@ -186,41 +194,68 @@ class Dispatcher(Thread):
     def write_status(self, status):
         self.logger.status(status, self.parsed, self.added, self.downloaded, self.start_time)
 
-
-def download(url):
-    """Helper function to download URL content and obtain mime type.
-        Args:
-            url: URL to download.
-        Returns:
-            Tuple:
-                HTTP status code.
-                MIME type taken from protocol headers.
-                File name from headers (or guessed from URL).
-                Binary content.
-                Content encoding taken from headers.
-        Raises:
-            HTTPError: Protocol error.
-            URLError: URL incorrect.
-    """
-    response = None
-    try:
-        response = request.urlopen(url)
-        code = response.getcode()
-        mimetype = response.info().get_content_type()
-        filename = response.info().get_filename()
-        if not filename:
-            # Guess filename from URL
-            filename = posixpath.basename(urlparse(url).path)
-        encoding = response.info().get_content_charset()
-        content = response.read()
-        return code, mimetype, filename, content, encoding
-    except error.HTTPError as ex:
-        print('Code %d retrieving %s' % (ex.code, url), file=sys.stderr)
-        return ex.code, None, None, None, None
-    except error.URLError as ex:
-        print('Error retrieving "%s"' % url, file=sys.stderr)
-        print(ex.reason, file=sys.stderr)
-        return None, None, None, None, None
-    finally:
-        if response:
-            response.close()
+    def download(self, url):
+        """Helper function to download URL content and obtain mime type.
+            Args:
+                url: URL to download.
+            Returns:
+                Tuple:
+                    HTTP status code (or -1 if disallowed by robots.txt).
+                    MIME type taken from protocol headers.
+                    File name from headers (or guessed from URL).
+                    Binary content.
+                    Content encoding taken from headers.
+            Raises:
+                HTTPError: Protocol error.
+                URLError: URL incorrect.
+        """
+        # robots.txt management
+        parsed_url = parse.urlparse(url)
+        path_robots = parse.ParseResult(scheme=parsed_url.scheme,
+                                          netloc=parsed_url.netloc,
+                                          path='robots.txt',
+                                          params='',
+                                          query='',
+                                          fragment='')
+        url_robots = parse.urlunparse(path_robots)
+        # Is cached?
+        robots_parser = self.robots_cache.get(url_robots)
+        if robots_parser is None:
+            # Create parser and retrieve
+            robots_parser = robotparser.RobotFileParser(url=url_robots)
+            try:
+                robots_parser.read()
+            except error.URLError as ex:
+                print('Error getting robots: %s' % url_robots, file=sys.stderr)
+                # Assign an empty parser to avoid repeated requests
+                self.robots_cache[url_robots] = robotparser.RobotFileParser()
+            # Store in cache
+            self.robots_cache[url_robots] = robots_parser
+        # Query robots policy
+        if robots_parser.can_fetch('*', url):
+            # Proceed
+            response = None
+            try:
+                response = request.urlopen(url)
+                code = response.getcode()
+                mimetype = response.info().get_content_type()
+                filename = response.info().get_filename()
+                if not filename:
+                    # Guess filename from URL
+                    filename = posixpath.basename(parse.urlparse(url).path)
+                encoding = response.info().get_content_charset()
+                content = response.read()
+                return code, mimetype, filename, content, encoding
+            except error.HTTPError as ex:
+                print('Code %d retrieving %s' % (ex.code, url), file=sys.stderr)
+                return ex.code, None, None, None, None
+            except error.URLError as ex:
+                print('Error retrieving "%s"' % url, file=sys.stderr)
+                print(ex.reason, file=sys.stderr)
+                return None, None, None, None, None
+            finally:
+                if response:
+                    response.close()
+        else:
+            # Robots.txt disallowed
+            return -1, None, None, None, None

@@ -36,8 +36,6 @@ import os
 import errno
 from engine.logger import Logger
 
-# TODO support for robots.txt
-
 
 def load_class(name):
     """Utility function to load a class.
@@ -125,7 +123,7 @@ if __name__ == '__main__':
 
     # Split list of keywords
     if options.keywords:
-        keywords = options.keywords.split(',')
+        keywords = [x.strip() for x in options.keywords.split(',')]
     else:
         keywords = None
 

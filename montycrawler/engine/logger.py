@@ -44,6 +44,7 @@ class Logger:
             Message(label='THREAD_FINISHED'),
             Message(label='THREAD_ABORTED'),
             Message(label='DOWNLOADED'),
+            Message(label='DISALLOWED'),
         )
         self.session().bulk_save_objects(messages)
 
