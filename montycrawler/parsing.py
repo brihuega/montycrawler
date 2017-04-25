@@ -34,6 +34,7 @@ class SimpleParser(HTMLParser):
         self.links = None
         self.current = None
         self.title = None
+        self.disallowed = False
 
     def parse(self, text):
         """Run parse process.
@@ -53,9 +54,15 @@ class SimpleParser(HTMLParser):
                     Priority (None)
 
         """
+        self.title = None
+        self.disallowed = None
         self.links = []
         self.feed(text)
-        return self.title, self.links
+        # Don't return anything if meta tags prevent from indexing or following
+        if self.disallowed:
+            return None, []
+        else:
+            return self.title, self.links
 
     def handle_starttag(self, tag, attrs):
         """Hook function for start tags.
@@ -69,10 +76,20 @@ class SimpleParser(HTMLParser):
             for name, value in attrs:
                 if name == 'href':
                     self.current = (value,)
-                    break
-        else:
-            if tag == 'title':
+                elif name == 'rel' and value == 'nofollow':
+                    self.current = None
+        elif tag == 'title':
                 self.title = '_empty_'
+        elif tag == 'meta':
+            robots = False
+            noindex = False
+            for name, value in attrs:
+                if name == 'name' and value == 'robots':
+                    robots = True
+                if name == 'content' and ('noindex' in value or 'nofollow' in value):
+                    noindex = True
+            if robots and noindex:
+                self.disallowed = True
 
     def handle_data(self, data):
         """Hook function for HTML data between tags.
