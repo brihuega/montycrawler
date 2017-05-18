@@ -114,9 +114,11 @@ class SimpleParser(HTMLParser):
             # Force tuples of 2 elements
             if len(self.current) != 2:
                 self.current = (self.current[0], None)
-            # Placeholder for priority.
-            # This simple parser doesn't assign it.
-            self.links.append(self.current + (None,))
+            if self.current[0] and 'pdf' in self.current[0].lower() \
+                    or self.current[1] and 'pdf' in self.current[1].lower():
+                self.links.append(self.current + (1,))
+            else:
+                self.links.append(self.current + (None,))
         self.current = None
         if tag == 'title' and self.title == '_empty_':
             self.title = None
